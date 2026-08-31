@@ -1,0 +1,2081 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Malerwerk Stuttgart – Arbeitsmanager</title>
+
+<!-- Import-Map: React & lucide-react werden per ESM aus dem CDN geladen -->
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.3.1",
+    "react-dom": "https://esm.sh/react-dom@18.3.1",
+    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+    "lucide-react": "https://esm.sh/lucide-react@0.383.0?external=react"
+  }
+}
+</script>
+
+<!-- Babel Standalone, um das JSX direkt im Browser zu transpilieren -->
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<style>
+  html, body { margin: 0; padding: 0; }
+  #root { min-height: 100vh; }
+  #mf-loading { display:flex; align-items:center; justify-content:center; min-height:100vh; font-family: sans-serif; color:#66768E; }
+</style>
+</head>
+<body>
+<div id="root"><div id="mf-loading">Wird geladen …</div></div>
+
+<script type="module">
+  /* ======================================================================
+     FIREBASE-KONFIGURATION
+     ----------------------------------------------------------------------
+     Trage hier die Konfigurationswerte deines eigenen Firebase-Projekts
+     ein. Du findest sie in der Firebase-Console unter:
+     Projekteinstellungen -> "Meine Apps" -> Web-App -> SDK-Konfiguration.
+
+     Kurzanleitung:
+     1. https://console.firebase.google.com öffnen, neues Projekt anlegen
+        (kostenloser "Spark"-Plan reicht).
+     2. Im Projekt: "Firestore Database" -> "Datenbank erstellen"
+        -> Testmodus wählen (oder Regeln s.u. verwenden).
+     3. Unter "Projektübersicht" -> Zahnrad -> "Projekteinstellungen"
+        -> "Meine Apps" -> "</> Web" -> App registrieren.
+     4. Die angezeigten Werte unten eintragen.
+
+     Sicherheitsregeln (Firestore -> Regeln), da diese App ohne Login-
+     Prüfung auf Firebase-Ebene arbeitet (die App-eigene Anmeldung bleibt
+     wie gehabt bestehen, sichert aber nicht die Datenbank selbst ab):
+
+       rules_version = '2';
+       service cloud.firestore {
+         match /databases/{database}/documents {
+           match /malerfirma_shared/{docId} {
+             allow read, write: if true; // Testmodus – siehe Hinweis unten
+           }
+         }
+       }
+
+     Hinweis: "allow read, write: if true" macht die Daten für jeden mit
+     der Projekt-URL lesbar/schreibbar. Für eine echte Firmen-App sollte
+     hier eine Firebase-Authentifizierung ergänzt und die Regel auf
+     angemeldete Nutzer eingeschränkt werden (allow read, write: if
+     request.auth != null). Für eine einfache interne Team-Lösung reicht
+     der Testmodus oft aus, solange die URL nicht öffentlich geteilt wird.
+     ====================================================================== */
+  const firebaseConfig = {
+    apiKey: "AIzaSyAUOLTCYtr7fQc4kP3j-t6lsgAK4BIEgw8",
+    authDomain: "hs-planer-104d7.firebaseapp.com",
+    projectId: "hs-planer-104d7",
+    storageBucket: "hs-planer-104d7.firebasestorage.app",
+    messagingSenderId: "921699904238",
+    appId: "1:921699904238:web:a05c701a4b6e1c3d7fe1ff",
+    measurementId: "G-XDHZE35MPB",
+  };
+
+  const FIREBASE_CONFIGURED = firebaseConfig.apiKey && !firebaseConfig.apiKey.startsWith("DEIN_");
+
+  function fullKeyPrivate(key) {
+    return "malerfirma_private_" + key;
+  }
+
+  if (!FIREBASE_CONFIGURED) {
+    // Kein Firebase eingerichtet -> Fallback auf localStorage (nur dieses Gerät).
+    console.warn("Firebase ist nicht konfiguriert – Daten werden nur lokal in diesem Browser gespeichert. Siehe Kommentar im <head> der Datei.");
+    window.storage = {
+      async get(key, shared) {
+        const raw = localStorage.getItem("malerfirma_" + (shared ? "shared_" : "private_") + key);
+        if (raw === null) return null;
+        return { key, value: raw, shared: !!shared };
+      },
+      async set(key, value, shared) {
+        localStorage.setItem("malerfirma_" + (shared ? "shared_" : "private_") + key, value);
+        return { key, value, shared: !!shared };
+      },
+      async delete(key, shared) {
+        localStorage.removeItem("malerfirma_" + (shared ? "shared_" : "private_") + key);
+        return { key, deleted: true, shared: !!shared };
+      },
+      async list() { return { keys: [] }; },
+    };
+  } else {
+    const { initializeApp } = await import("https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js");
+    const { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot } =
+      await import("https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js");
+
+    const fbApp = initializeApp(firebaseConfig);
+    const fs = getFirestore(fbApp);
+    const COLLECTION = "malerfirma_shared";
+
+    window.storage = {
+      async get(key, shared) {
+        if (!shared) {
+          const raw = localStorage.getItem(fullKeyPrivate(key));
+          return raw === null ? null : { key, value: raw, shared: false };
+        }
+        const snap = await getDoc(doc(fs, COLLECTION, key));
+        if (!snap.exists()) return null;
+        return { key, value: snap.data().value, shared: true };
+      },
+      async set(key, value, shared) {
+        if (!shared) {
+          localStorage.setItem(fullKeyPrivate(key), value);
+          return { key, value, shared: false };
+        }
+        await setDoc(doc(fs, COLLECTION, key), { value, updatedAt: Date.now() });
+        return { key, value, shared: true };
+      },
+      async delete(key, shared) {
+        if (!shared) {
+          localStorage.removeItem(fullKeyPrivate(key));
+          return { key, deleted: true, shared: false };
+        }
+        await deleteDoc(doc(fs, COLLECTION, key));
+        return { key, deleted: true, shared: true };
+      },
+      async list() { return { keys: [] }; },
+    };
+
+    // Live-Sync: liefert Änderungen von anderen Geräten in Echtzeit.
+    window.__mfSubscribeDB = function (callback) {
+      return onSnapshot(doc(fs, COLLECTION, "db"), (snap) => {
+        if (snap.exists()) {
+          try { callback(JSON.parse(snap.data().value)); } catch (e) {}
+        }
+      });
+    };
+  }
+</script>
+
+<script type="text/babel" data-type="module" data-presets="react">
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { createRoot } from "react-dom/client";
+import {
+  LayoutDashboard, CalendarDays, CheckSquare, Building2, Users, UserCircle2,
+  Bell, Search, Settings, LogOut, Plus, ChevronLeft, ChevronRight, X,
+  Moon, Sun, MapPin, Clock, AlertTriangle, Check, ClipboardList, Package,
+  Menu, Phone, Mail, Trash2, Pencil, ChevronDown, PaintBucket, Sparkles,
+} from "lucide-react";
+
+/* ---------------------------------------------------------------------- */
+/*  Storage helpers                                                        */
+/* ---------------------------------------------------------------------- */
+
+const DB_KEY = "malerfirma_db_v1";
+const SESSION_KEY = "malerfirma_session_v1";
+
+function uid(prefix = "id") {
+  return `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
+}
+function addDays(base, n) {
+  const d = new Date(base);
+  d.setDate(d.getDate() + n);
+  return d;
+}
+function fmtDate(d) {
+  const dt = new Date(d);
+  return dt.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+function fmtDateShort(d) {
+  const dt = new Date(d);
+  return dt.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
+}
+function isoDay(d) {
+  const dt = new Date(d);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+}
+function greetingWord() {
+  const h = new Date().getHours();
+  if (h < 11) return "Guten Morgen";
+  if (h < 17) return "Guten Tag";
+  return "Guten Abend";
+}
+
+function seedDB() {
+  const today = new Date();
+  const users = [
+    { id: "u-chef", role: "chef", name: "Anna Bauer", position: "Inhaberin", email: "chef@firma.de", password: "demo", active: true, status: "verfuegbar" },
+    { id: "u-max", role: "mitarbeiter", name: "Max Mustermann", position: "Maler", email: "max@firma.de", password: "demo", active: true, status: "baustelle" },
+    { id: "u-lisa", role: "mitarbeiter", name: "Lisa Schmidt", position: "Malerin", email: "lisa@firma.de", password: "demo", active: true, status: "baustelle" },
+    { id: "u-tom", role: "mitarbeiter", name: "Tom Weber", position: "Maler", email: "tom@firma.de", password: "demo", active: true, status: "krank" },
+  ];
+
+  const customers = [
+    { id: "c-mueller", name: "Müller GmbH", contact: "Max Müller", phone: "0711 22 33 44", email: "info@mueller-gmbh.de", address: "Königstraße 12, Stuttgart", notes: "Bürogebäude, 3 Etagen." },
+    { id: "c-schmidt", name: "Familie Schmidt", contact: "Peter Schmidt", phone: "0711 55 66 77", email: "p.schmidt@web.de", address: "Rosenweg 4, Stuttgart", notes: "Einfamilienhaus, Fassade + Innenräume." },
+    { id: "c-meier", name: "Meier Bürocenter", contact: "Julia Meier", phone: "0711 88 99 00", email: "j.meier@meier-buero.de", address: "Hauptstraße 30, Stuttgart", notes: "Neubau, laufende Endabnahme geplant." },
+  ];
+
+  const projects = [
+    { id: "p-mueller", name: "Müller GmbH – Bürogebäude", customerId: "c-mueller", address: "Königstraße 12, Stuttgart", status: "in_bearbeitung", start: isoDay(addDays(today, -3)), end: isoDay(addDays(today, 9)), employeeIds: ["u-max", "u-lisa"], progress: 80,
+      tasks: ["Wände vorbereiten", "Grundierung", "Decken streichen", "Türen lackieren", "Endabnahme"],
+      materials: [{ name: "Farbe Weiß", amount: "60 Liter" }, { name: "Grundierung", amount: "20 Liter" }] },
+    { id: "p-schmidt", name: "Schmidt Wohnhaus", customerId: "c-schmidt", address: "Rosenweg 4, Stuttgart", status: "in_bearbeitung", start: isoDay(addDays(today, -10)), end: isoDay(addDays(today, 4)), employeeIds: ["u-tom"], progress: 50,
+      tasks: ["Fassade reinigen", "Fassade grundieren", "Fassade streichen"],
+      materials: [{ name: "Fassadenfarbe", amount: "80 Liter" }] },
+    { id: "p-meier", name: "Meier Büro", customerId: "c-meier", address: "Hauptstraße 30, Stuttgart", status: "geplant", start: isoDay(addDays(today, 6)), end: isoDay(addDays(today, 20)), employeeIds: ["u-lisa"], progress: 30,
+      tasks: ["Material bestellen", "Vorbereitung Baustelle"],
+      materials: [{ name: "Wandfarbe", amount: "40 Liter" }] },
+  ];
+
+  const appointments = [
+    { id: uid("ap"), title: "Baustelle Müller GmbH", description: "Decken streichen, 2. OG", date: isoDay(today), start: "08:00", end: "12:00", location: "Stuttgart", employeeIds: ["u-max", "u-lisa"], customerId: "c-mueller", projectId: "p-mueller", category: "kunde", priority: "hoch", status: "geplant" },
+    { id: uid("ap"), title: "Material abholen", description: "Farbe und Grundierung im Lager abholen", date: isoDay(today), start: "11:30", end: "12:30", location: "Lager", employeeIds: ["u-max"], customerId: null, projectId: null, category: "intern", priority: "mittel", status: "geplant" },
+    { id: uid("ap"), title: "Kundengespräch Müller GmbH", description: "Abstimmung Endabnahme", date: isoDay(today), start: "14:00", end: "15:00", location: "Müller GmbH, Stuttgart", employeeIds: ["u-max"], customerId: "c-mueller", projectId: "p-mueller", category: "wichtig", priority: "hoch", status: "geplant" },
+    { id: uid("ap"), title: "Dokumentation fertigstellen", description: "Aufmaß und Fotos ablegen", date: isoDay(today), start: "16:00", end: "17:00", location: "Büro", employeeIds: ["u-max"], customerId: null, projectId: null, category: "allgemein", priority: "niedrig", status: "geplant" },
+    { id: uid("ap"), title: "Fassade streichen", description: "Südseite, 2. Anstrich", date: isoDay(today), start: "08:00", end: "16:00", location: "Rosenweg 4, Stuttgart", employeeIds: ["u-tom"], customerId: "c-schmidt", projectId: "p-schmidt", category: "kunde", priority: "hoch", status: "geplant" },
+    { id: uid("ap"), title: "Kundentermin Müller GmbH", description: "Übergabegespräch", date: isoDay(addDays(today, 3)), start: "14:00", end: "15:30", location: "Müller GmbH, Stuttgart", employeeIds: ["u-max"], customerId: "c-mueller", projectId: "p-mueller", category: "kunde", priority: "hoch", status: "geplant" },
+    { id: uid("ap"), title: "Materialbestellung Meier Büro", description: "Bestellung für kommende Baustelle", date: isoDay(addDays(today, 5)), start: "09:00", end: "09:30", location: "Büro", employeeIds: ["u-lisa"], customerId: "c-meier", projectId: "p-meier", category: "intern", priority: "mittel", status: "geplant" },
+    { id: uid("ap"), title: "Teammeeting", description: "Wochenplanung", date: isoDay(addDays(today, 1)), start: "08:00", end: "08:30", location: "Büro", employeeIds: ["u-max", "u-lisa", "u-tom"], customerId: null, projectId: null, category: "intern", priority: "mittel", status: "geplant" },
+  ];
+
+  const tasks = [
+    { id: uid("t"), title: "Wohnzimmer Wände streichen", projectId: "p-mueller", assigneeId: "u-max", due: isoDay(addDays(today, 3)), priority: "hoch", status: "offen" },
+    { id: uid("t"), title: "Türen lackieren, 2. OG", projectId: "p-mueller", assigneeId: "u-max", due: isoDay(today), priority: "mittel", status: "in_bearbeitung" },
+    { id: uid("t"), title: "Abdeckfolie nachbestellen", projectId: "p-mueller", assigneeId: "u-lisa", due: isoDay(addDays(today, 1)), priority: "niedrig", status: "offen" },
+    { id: uid("t"), title: "Fassade grundieren, Nordseite", projectId: "p-schmidt", assigneeId: "u-tom", due: isoDay(addDays(today, 2)), priority: "hoch", status: "offen" },
+    { id: uid("t"), title: "Endabnahme vorbereiten", projectId: "p-mueller", assigneeId: "u-max", due: isoDay(addDays(today, 4)), priority: "hoch", status: "offen" },
+  ];
+
+  const absences = [
+    { id: uid("abs"), employeeId: "u-tom", type: "krank", start: isoDay(today), end: isoDay(addDays(today, 2)), status: "genehmigt" },
+    { id: uid("abs"), employeeId: "u-lisa", type: "urlaub", start: isoDay(addDays(today, 12)), end: isoDay(addDays(today, 19)), status: "offen" },
+  ];
+
+  const materials = [
+    { id: uid("m"), name: "Wandfarbe Weiß", stock: 120, unit: "Liter", low: 30 },
+    { id: uid("m"), name: "Grundierung", stock: 18, unit: "Liter", low: 20 },
+    { id: uid("m"), name: "Fassadenfarbe", stock: 65, unit: "Liter", low: 25 },
+    { id: uid("m"), name: "Abdeckfolie", stock: 6, unit: "Rollen", low: 8 },
+    { id: uid("m"), name: "Klebeband", stock: 40, unit: "Rollen", low: 10 },
+    { id: uid("m"), name: "Spachtelmasse", stock: 22, unit: "kg", low: 10 },
+  ];
+
+  const notifications = [
+    { id: uid("n"), audience: "user:u-max", text: "Neuer Termin von deinem Chef: Baustelle Müller GmbH", time: Date.now() - 1000 * 60 * 60, read: false },
+    { id: uid("n"), audience: "user:u-tom", text: "Dein Urlaub wurde geprüft", time: Date.now() - 1000 * 60 * 200, read: true },
+    { id: uid("n"), audience: "chef", text: "Lisa Schmidt hat Urlaub beantragt", time: Date.now() - 1000 * 60 * 90, read: false },
+  ];
+
+  return { users, customers, projects, appointments, tasks, absences, materials, notifications };
+}
+
+async function loadDB() {
+  try {
+    const r = await window.storage.get("db", true);
+    if (!r) throw new Error("empty");
+    return JSON.parse(r.value);
+  } catch {
+    const seed = seedDB();
+    try { await window.storage.set("db", JSON.stringify(seed), true); } catch {}
+    return seed;
+  }
+}
+async function persistDB(db) {
+  try { await window.storage.set("db", JSON.stringify(db), true); } catch {}
+}
+async function loadSession() {
+  try {
+    const r = await window.storage.get(SESSION_KEY, false);
+    if (!r) return null;
+    return JSON.parse(r.value);
+  } catch { return null; }
+}
+async function persistSession(s) {
+  try {
+    if (s) await window.storage.set(SESSION_KEY, JSON.stringify(s), false);
+    else await window.storage.delete(SESSION_KEY, false);
+  } catch {}
+}
+
+/* ---------------------------------------------------------------------- */
+/*  Static style sheet (brand tokens)                                      */
+/* ---------------------------------------------------------------------- */
+
+const GlobalStyle = () => (
+  <style>{`
+    @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Inter:wght@400;500;600;700&display=swap');
+
+    .mf-root {
+      --bg: #F5F8FC;
+      --surface: #FFFFFF;
+      --surface-2: #F0F4FA;
+      --text: #182437;
+      --text-muted: #66768E;
+      --border: #E2E8F1;
+      --blue-900: #14304D;
+      --blue-700: #1F4A78;
+      --blue-600: #2C5F9E;
+      --blue-100: #E7EFFA;
+      --yellow-500: #F4B400;
+      --yellow-600: #D99A00;
+      --yellow-100: #FFF4D6;
+      --red-500: #E15353;
+      --red-100: #FCE7E7;
+      --green-500: #2FA766;
+      --green-100: #E4F6EC;
+      --shadow: 0 1px 2px rgba(20,48,77,0.06), 0 8px 24px -12px rgba(20,48,77,0.15);
+      font-family: 'Inter', sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      min-height: 100vh;
+    }
+    .mf-root.dark {
+      --bg: #0E1826;
+      --surface: #142236;
+      --surface-2: #182A42;
+      --text: #EAF1FB;
+      --text-muted: #8FA0BB;
+      --border: #22344E;
+      --blue-100: #1B3252;
+      --yellow-100: #2C230C;
+      --red-100: #34201F;
+      --green-100: #14301F;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px -12px rgba(0,0,0,0.5);
+    }
+    .mf-root * { box-sizing: border-box; }
+    .mf-heading { font-family: 'Manrope', sans-serif; }
+    .mf-stripe {
+      background: linear-gradient(100deg, var(--blue-600) 0%, var(--blue-600) 58%, var(--yellow-500) 58%, var(--yellow-500) 100%);
+    }
+    .mf-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+    }
+    .mf-btn {
+      font-family: 'Inter', sans-serif;
+      font-weight: 600;
+      border-radius: 10px;
+      padding: 10px 16px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: transform .12s ease, box-shadow .12s ease, background .15s ease;
+      white-space: nowrap;
+    }
+    .mf-btn:active { transform: scale(0.97); }
+    .mf-btn-primary { background: var(--blue-600); color: #fff; }
+    .mf-btn-primary:hover { background: var(--blue-700); }
+    .mf-btn-accent { background: var(--yellow-500); color: var(--blue-900); }
+    .mf-btn-accent:hover { background: var(--yellow-600); }
+    .mf-btn-ghost { background: transparent; color: var(--text); border-color: var(--border); }
+    .mf-btn-ghost:hover { background: var(--surface-2); }
+    .mf-input {
+      width: 100%;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 9px 12px;
+      font-size: 14px;
+      font-family: 'Inter', sans-serif;
+    }
+    .mf-input:focus { outline: 2px solid var(--blue-600); outline-offset: 1px; }
+    .mf-label { font-size: 12.5px; font-weight: 600; color: var(--text-muted); margin-bottom: 5px; display: block; }
+    .mf-nav-item {
+      display: flex; align-items: center; gap: 11px;
+      padding: 10px 14px; border-radius: 10px; font-size: 14px; font-weight: 600;
+      color: var(--text-muted); cursor: pointer; position: relative;
+      transition: background .15s ease, color .15s ease;
+    }
+    .mf-nav-item:hover { background: var(--surface-2); color: var(--text); }
+    .mf-nav-item.active { background: var(--blue-100); color: var(--blue-700); }
+    .mf-nav-item.active::before {
+      content: ""; position: absolute; left: -10px; top: 50%; transform: translateY(-50%);
+      width: 4px; height: 18px; border-radius: 4px; background: var(--yellow-500);
+    }
+    .mf-badge { font-size: 11.5px; font-weight: 700; padding: 3px 9px; border-radius: 999px; display: inline-flex; align-items: center; gap: 5px; }
+    .mf-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+    .mf-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 6px; }
+    .mf-fade-in { animation: mfFadeIn .25s ease; }
+    @keyframes mfFadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    .mf-pop { animation: mfPop .35s cubic-bezier(.34,1.56,.64,1); }
+    @keyframes mfPop { from { opacity: 0; transform: scale(.9); } to { opacity: 1; transform: scale(1); } }
+    .mf-task-done { animation: mfTaskDone .4s ease; }
+    @keyframes mfTaskDone { 0% { background: var(--green-100); } 100% { background: transparent; } }
+    .mf-drip { position: absolute; border-radius: 50%; }
+    @media (max-width: 860px) {
+      .mf-sidebar { display: none; }
+      .mf-bottomnav { display: flex !important; }
+      .mf-main { padding-bottom: 76px !important; }
+    }
+  `}</style>
+);
+
+/* ---------------------------------------------------------------------- */
+/*  Small shared UI bits                                                   */
+/* ---------------------------------------------------------------------- */
+
+function Logo({ size = 34 }) {
+  return (
+    <div style={{ width: size, height: size, borderRadius: size * 0.28, background: "var(--blue-600)", position: "relative", overflow: "hidden", flexShrink: 0 }}>
+      <div style={{ position: "absolute", left: 0, right: 0, top: "38%", height: "26%", background: "var(--yellow-500)", transform: "skewY(-8deg)" }} />
+      <div style={{ position: "absolute", width: size * 0.16, height: size * 0.16, borderRadius: "50%", background: "var(--yellow-500)", right: size * 0.14, bottom: size * 0.12 }} />
+    </div>
+  );
+}
+
+const CATEGORY_META = {
+  kunde: { label: "Kunde", color: "var(--blue-600)", bg: "var(--blue-100)" },
+  wichtig: { label: "Wichtig", color: "var(--yellow-600)", bg: "var(--yellow-100)" },
+  intern: { label: "Intern", color: "#5B84B8", bg: "var(--blue-100)" },
+  allgemein: { label: "Allgemein", color: "var(--text-muted)", bg: "var(--surface-2)" },
+};
+const PRIORITY_META = {
+  hoch: { label: "Hoch", color: "var(--red-500)", bg: "var(--red-100)" },
+  mittel: { label: "Mittel", color: "var(--yellow-600)", bg: "var(--yellow-100)" },
+  niedrig: { label: "Niedrig", color: "var(--green-500)", bg: "var(--green-100)" },
+};
+const STATUS_META = {
+  verfuegbar: { label: "Verfügbar", color: "var(--green-500)", bg: "var(--green-100)" },
+  baustelle: { label: "Auf Baustelle", color: "var(--yellow-600)", bg: "var(--yellow-100)" },
+  krank: { label: "Krank", color: "var(--red-500)", bg: "var(--red-100)" },
+};
+
+function Badge({ children, color, bg }) {
+  return <span className="mf-badge" style={{ color, background: bg }}>{children}</span>;
+}
+
+function Avatar({ name, size = 34 }) {
+  const initials = name.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase();
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: "50%", background: "var(--blue-100)", color: "var(--blue-700)",
+      display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: size * 0.38, flexShrink: 0,
+    }}>{initials}</div>
+  );
+}
+
+function Modal({ title, onClose, children, width = 480 }) {
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(15,24,38,0.45)", zIndex: 100,
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+    }} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="mf-card mf-pop mf-scroll" style={{ width, maxWidth: "100%", maxHeight: "88vh", overflowY: "auto", padding: 22 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+          <h3 className="mf-heading" style={{ fontSize: 18, fontWeight: 800, margin: 0 }}>{title}</h3>
+          <button className="mf-btn mf-btn-ghost" style={{ padding: 6 }} onClick={onClose}><X size={16} /></button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function EmptyState({ icon: Icon, text, sub }) {
+  return (
+    <div style={{ textAlign: "center", padding: "40px 20px", color: "var(--text-muted)" }}>
+      <Icon size={30} style={{ marginBottom: 10, opacity: 0.5 }} />
+      <div style={{ fontWeight: 600, color: "var(--text)" }}>{text}</div>
+      {sub && <div style={{ fontSize: 13, marginTop: 4 }}>{sub}</div>}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/*  Login                                                                   */
+/* ---------------------------------------------------------------------- */
+
+function LoginScreen({ db, onLogin, onRegister }) {
+  const [mode, setMode] = useState("login"); // "login" | "register"
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [password2, setPassword2] = useState("");
+  const [error, setError] = useState("");
+
+  function switchMode(m) {
+    setMode(m);
+    setError("");
+    setPassword("");
+    setPassword2("");
+  }
+
+  function submitLogin(e) {
+    e.preventDefault();
+    const user = db.users.find((u) => u.email.toLowerCase() === email.trim().toLowerCase());
+    if (!user || !user.active) { setError("Kein aktives Konto mit dieser E-Mail gefunden."); return; }
+    if (user.password !== password) { setError("Passwort ist nicht korrekt."); return; }
+    onLogin(user.id);
+  }
+
+  function submitRegister(e) {
+    e.preventDefault();
+    setError("");
+    const trimmedName = name.trim();
+    const trimmedEmail = email.trim();
+    if (!trimmedName) { setError("Bitte gib deinen Namen ein."); return; }
+    if (!trimmedEmail) { setError("Bitte gib eine E-Mail-Adresse ein."); return; }
+    if (password.length < 4) { setError("Das Passwort muss mindestens 4 Zeichen lang sein."); return; }
+    if (password !== password2) { setError("Die Passwörter stimmen nicht überein."); return; }
+    if (db.users.some((u) => u.email.toLowerCase() === trimmedEmail.toLowerCase())) {
+      setError("Für diese E-Mail existiert bereits ein Konto.");
+      return;
+    }
+    const user = {
+      id: uid("u"),
+      role: "mitarbeiter",
+      name: trimmedName,
+      position: "",
+      email: trimmedEmail,
+      password,
+      active: true,
+      status: "verfuegbar",
+    };
+    onRegister(user);
+  }
+
+  function quick(u) { setMode("login"); setEmail(u.email); setPassword(u.password); setError(""); }
+
+  return (
+    <div className="mf-root" style={{ display: "flex", minHeight: "100vh" }}>
+      <GlobalStyle />
+      <div style={{ flex: 1, background: "var(--blue-900)", color: "#fff", padding: "56px 48px", display: "flex", flexDirection: "column", justifyContent: "space-between", position: "relative", overflow: "hidden", minHeight: 340 }}>
+        <div style={{ position: "absolute", right: -60, bottom: -60, width: 260, height: 260, borderRadius: "50%", background: "rgba(244,180,0,0.08)" }} />
+        <div style={{ position: "absolute", right: 40, top: 120, width: 120, height: 26, borderRadius: 13, background: "rgba(244,180,0,0.18)", transform: "rotate(-6deg)" }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 12, position: "relative" }}>
+          <Logo size={40} />
+          <div className="mf-heading" style={{ fontWeight: 800, fontSize: 20 }}>Malerwerk Stuttgart</div>
+        </div>
+        <div style={{ position: "relative", maxWidth: 380 }}>
+          <div className="mf-heading" style={{ fontSize: 34, fontWeight: 800, lineHeight: 1.15, marginBottom: 14 }}>Arbeitsmanager</div>
+          <div style={{ fontSize: 15.5, color: "rgba(255,255,255,0.75)", lineHeight: 1.6 }}>
+            Alles im Blick: Termine, Mitarbeiter und Aufträge – an einem Ort, für den ganzen Betrieb.
+          </div>
+        </div>
+        <div style={{ fontSize: 12.5, color: "rgba(255,255,255,0.45)", position: "relative" }}>© {new Date().getFullYear()} Malerwerk Stuttgart</div>
+      </div>
+
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        {mode === "login" ? (
+          <form onSubmit={submitLogin} style={{ width: "100%", maxWidth: 360 }} className="mf-fade-in">
+            <h2 className="mf-heading" style={{ fontSize: 22, fontWeight: 800, marginBottom: 4 }}>Willkommen zurück</h2>
+            <p style={{ color: "var(--text-muted)", fontSize: 14, marginBottom: 24 }}>Melde dich mit deinem Konto an.</p>
+
+            <label className="mf-label">E-Mail</label>
+            <input className="mf-input" style={{ marginBottom: 14 }} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@firma.de" required />
+
+            <label className="mf-label">Passwort</label>
+            <input className="mf-input" style={{ marginBottom: 8 }} type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••" required />
+
+            <div style={{ textAlign: "right", marginBottom: 16 }}>
+              <span style={{ fontSize: 12.5, color: "var(--blue-600)", fontWeight: 600, cursor: "pointer" }}>Passwort vergessen?</span>
+            </div>
+
+            {error && <div style={{ background: "var(--red-100)", color: "var(--red-500)", fontSize: 13, padding: "8px 12px", borderRadius: 8, marginBottom: 14 }}>{error}</div>}
+
+            <button type="submit" className="mf-btn mf-btn-primary" style={{ width: "100%", justifyContent: "center", padding: "11px 16px" }}>Einloggen</button>
+
+            <div style={{ textAlign: "center", marginTop: 16, fontSize: 13 }}>
+              Noch kein Konto?{" "}
+              <span style={{ color: "var(--blue-600)", fontWeight: 700, cursor: "pointer" }} onClick={() => switchMode("register")}>Jetzt registrieren</span>
+            </div>
+
+            <div style={{ marginTop: 22, paddingTop: 18, borderTop: "1px solid var(--border)" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-muted)", marginBottom: 8 }}>DEMO-ZUGÄNGE</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {db.users.filter(u => u.active).map((u) => (
+                  <button type="button" key={u.id} onClick={() => quick(u)} className="mf-btn mf-btn-ghost" style={{ fontSize: 12.5, padding: "6px 10px" }}>
+                    {u.role === "chef" ? "👑" : "🎨"} {u.name.split(" ")[0]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </form>
+        ) : (
+          <form onSubmit={submitRegister} style={{ width: "100%", maxWidth: 360 }} className="mf-fade-in">
+            <h2 className="mf-heading" style={{ fontSize: 22, fontWeight: 800, marginBottom: 4 }}>Konto erstellen</h2>
+            <p style={{ color: "var(--text-muted)", fontSize: 14, marginBottom: 24 }}>Lege dir dein eigenes Mitarbeiter-Konto an.</p>
+
+            <label className="mf-label">Name</label>
+            <input className="mf-input" style={{ marginBottom: 14 }} type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Dein Name" required />
+
+            <label className="mf-label">E-Mail</label>
+            <input className="mf-input" style={{ marginBottom: 14 }} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@firma.de" required />
+
+            <label className="mf-label">Passwort</label>
+            <input className="mf-input" style={{ marginBottom: 14 }} type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="mind. 4 Zeichen" required />
+
+            <label className="mf-label">Passwort wiederholen</label>
+            <input className="mf-input" style={{ marginBottom: 8 }} type="password" value={password2} onChange={(e) => setPassword2(e.target.value)} placeholder="••••••" required />
+
+            {error && <div style={{ background: "var(--red-100)", color: "var(--red-500)", fontSize: 13, padding: "8px 12px", borderRadius: 8, marginTop: 6, marginBottom: 14 }}>{error}</div>}
+
+            <button type="submit" className="mf-btn mf-btn-primary" style={{ width: "100%", justifyContent: "center", padding: "11px 16px", marginTop: 6 }}>Konto erstellen</button>
+
+            <div style={{ textAlign: "center", marginTop: 16, fontSize: 13 }}>
+              Schon ein Konto?{" "}
+              <span style={{ color: "var(--blue-600)", fontWeight: 700, cursor: "pointer" }} onClick={() => switchMode("login")}>Zum Login</span>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/*  Dashboard                                                               */
+/* ---------------------------------------------------------------------- */
+
+function StatCard({ label, value, icon: Icon, accent }) {
+  return (
+    <div className="mf-card" style={{ padding: "16px 18px", flex: 1, minWidth: 130 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+        <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-muted)" }}>{label}</span>
+        <div style={{ width: 28, height: 28, borderRadius: 8, background: accent ? "var(--yellow-100)" : "var(--blue-100)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <Icon size={15} color={accent ? "var(--yellow-600)" : "var(--blue-600)"} />
+        </div>
+      </div>
+      <div className="mf-heading" style={{ fontSize: 26, fontWeight: 800 }}>{value}</div>
+    </div>
+  );
+}
+
+function NextUpList({ items, onOpen }) {
+  if (!items.length) return <EmptyState icon={Sparkles} text="Nichts Anstehendes" sub="Für den Rest des Tages ist nichts geplant." />;
+  return (
+    <div>
+      {items.map((a, i) => {
+        const meta = CATEGORY_META[a.category] || CATEGORY_META.allgemein;
+        return (
+          <div key={a.id} style={{ display: "flex", gap: 14 }}>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 20 }}>
+              <div style={{ width: 10, height: 10, borderRadius: "50%", background: meta.color, marginTop: 4 }} />
+              {i < items.length - 1 && <div style={{ width: 2, flex: 1, background: "var(--border)", minHeight: 34 }} />}
+            </div>
+            <div onClick={() => onOpen && onOpen(a)} style={{ paddingBottom: 20, cursor: onOpen ? "pointer" : "default", flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--blue-700)" }}>{a.start} – {a.end}</div>
+              <div style={{ fontWeight: 700, fontSize: 14.5, margin: "2px 0 3px" }}>{a.title}</div>
+              {a.location && <div style={{ fontSize: 12.5, color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 4 }}><MapPin size={12} /> {a.location}</div>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function EmployeeDashboard({ db, me, openAppointment, go }) {
+  const todayIso = isoDay(new Date());
+  const myAppts = db.appointments.filter((a) => a.employeeIds.includes(me.id));
+  const todaysAppts = myAppts.filter((a) => a.date === todayIso).sort((a, b) => a.start.localeCompare(b.start));
+  const myTasks = db.tasks.filter((t) => t.assigneeId === me.id);
+  const openTasks = myTasks.filter((t) => t.status !== "erledigt");
+  const dueToday = myTasks.filter((t) => t.due === todayIso && t.status !== "erledigt");
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const next = todaysAppts.find((a) => {
+    const [h, m] = a.start.split(":").map(Number);
+    return h * 60 + m >= currentMinutes;
+  }) || todaysAppts[0];
+
+  return (
+    <div className="mf-fade-in">
+      <h1 className="mf-heading" style={{ fontSize: 24, fontWeight: 800, marginBottom: 2 }}>{greetingWord()}, {me.name.split(" ")[0]} 👋</h1>
+      <p style={{ color: "var(--text-muted)", fontSize: 14.5, marginBottom: 22 }}>Hier ist dein Arbeitsüberblick für heute.</p>
+
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 22 }}>
+        <div className="mf-card mf-stripe" style={{ padding: "18px 20px", flex: "1 1 220px", color: "#fff", position: "relative", overflow: "hidden" }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, opacity: 0.9, marginBottom: 8 }}>NÄCHSTER TERMIN</div>
+          {next ? (
+            <>
+              <div className="mf-heading" style={{ fontSize: 22, fontWeight: 800 }}>{next.start} Uhr</div>
+              <div style={{ fontWeight: 600, marginTop: 4 }}>{next.title}</div>
+              {next.location && <div style={{ fontSize: 12.5, marginTop: 4, display: "flex", alignItems: "center", gap: 4, opacity: 0.9 }}><MapPin size={12} /> {next.location}</div>}
+            </>
+          ) : <div style={{ fontWeight: 600 }}>Heute kein weiterer Termin</div>}
+        </div>
+        <StatCard label="Heute" value={`${todaysAppts.length} Termine`} icon={CalendarDays} />
+        <StatCard label="Aufgaben" value={`${openTasks.length} offen`} icon={CheckSquare} accent />
+        <StatCard label="Heute fällig" value={dueToday.length} icon={ClipboardList} />
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 18 }} className="mf-dash-grid">
+        <div className="mf-card" style={{ padding: 20 }}>
+          <h3 className="mf-heading" style={{ fontSize: 16, fontWeight: 800, marginBottom: 16 }}>Als Nächstes</h3>
+          <NextUpList items={todaysAppts} onOpen={openAppointment} />
+        </div>
+        <div className="mf-card" style={{ padding: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <h3 className="mf-heading" style={{ fontSize: 16, fontWeight: 800 }}>Offene Aufgaben</h3>
+            <span onClick={() => go("tasks")} style={{ fontSize: 12.5, fontWeight: 700, color: "var(--blue-600)", cursor: "pointer" }}>Alle ansehen</span>
+          </div>
+          {openTasks.length === 0 ? <EmptyState icon={CheckSquare} text="Keine offenen Aufgaben" /> : openTasks.slice(0, 5).map((t) => {
+            const p = PRIORITY_META[t.priority];
+            return (
+              <div key={t.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: "1px solid var(--border)" }}>
+                <div>
+                  <div style={{ fontSize: 13.5, fontWeight: 600 }}>{t.title}</div>
+                  <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>Fällig {fmtDateShort(t.due)}</div>
+                </div>
+                <Badge color={p.color} bg={p.bg}>{p.label}</Badge>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ChefDashboard({ db, me, go }) {
+  const todayIso = isoDay(new Date());
+  const activeEmployees = db.users.filter((u) => u.role === "mitarbeiter" && u.active);
+  const todaysAppts = db.appointments.filter((a) => a.date === todayIso);
+  const activeProjects = db.projects.filter((p) => p.status === "in_bearbeitung");
+  const openTasks = db.tasks.filter((t) => t.status !== "erledigt");
+  const pendingAbsences = db.absences.filter((a) => a.status === "offen");
+
+  return (
+    <div className="mf-fade-in">
+      <h1 className="mf-heading" style={{ fontSize: 24, fontWeight: 800, marginBottom: 2 }}>{greetingWord()}, {me.name.split(" ")[0]} 👋</h1>
+      <p style={{ color: "var(--text-muted)", fontSize: 14.5, marginBottom: 22 }}>
+        Heute sind {todaysAppts.length} Termine und {activeProjects.length} Baustellen aktiv.
+      </p>
+
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 22 }}>
+        <StatCard label="Team heute" value={activeEmployees.length} icon={Users} />
+        <StatCard label="Termine heute" value={todaysAppts.length} icon={CalendarDays} accent />
+        <StatCard label="Aktive Baustellen" value={activeProjects.length} icon={Building2} />
+        <StatCard label="Offene Aufgaben" value={openTasks.length} icon={CheckSquare} />
+        <StatCard label="Abwesenheiten" value={pendingAbsences.length} icon={ClipboardList} accent />
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 18 }} className="mf-dash-grid">
+        <div className="mf-card" style={{ padding: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <h3 className="mf-heading" style={{ fontSize: 16, fontWeight: 800 }}>Aktuelle Baustellen</h3>
+            <span onClick={() => go("projects")} style={{ fontSize: 12.5, fontWeight: 700, color: "var(--blue-600)", cursor: "pointer" }}>Alle ansehen</span>
+          </div>
+          {db.projects.map((p) => (
+            <div key={p.id} onClick={() => go("projectDetail", { id: p.id })} style={{ padding: "12px 0", borderBottom: "1px solid var(--border)", cursor: "pointer" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                <span style={{ fontWeight: 700, fontSize: 14 }}>{p.name}</span>
+                <span style={{ fontWeight: 700, fontSize: 13, color: "var(--blue-600)" }}>{p.progress}%</span>
+              </div>
+              <div style={{ height: 8, borderRadius: 8, background: "var(--surface-2)", overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${p.progress}%`, background: "linear-gradient(90deg, var(--blue-600), var(--yellow-500))", borderRadius: 8 }} />
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="mf-card" style={{ padding: 20 }}>
+          <h3 className="mf-heading" style={{ fontSize: 16, fontWeight: 800, marginBottom: 14 }}>Team-Status</h3>
+          {activeEmployees.map((u) => {
+            const s = STATUS_META[u.status] || STATUS_META.verfuegbar;
+            return (
+              <div key={u.id} onClick={() => go("teamMemberDetail", { id: u.id })} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", cursor: "pointer" }}>
+                <Avatar name={u.name} size={30} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 600 }}>{u.name}</div>
+                  <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>{u.position}</div>
+                </div>
+                <Badge color={s.color} bg={s.bg}>{s.label}</Badge>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/*  Appointment modal                                                       */
+/* ---------------------------------------------------------------------- */
+
+function AppointmentModal({ db, me, defaultDate, onClose, onSave }) {
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [date, setDate] = useState(defaultDate || isoDay(new Date()));
+  const [start, setStart] = useState("09:00");
+  const [end, setEnd] = useState("10:00");
+  const [location, setLocation] = useState("");
+  const [employeeIds, setEmployeeIds] = useState(me.role === "chef" ? [] : [me.id]);
+  const [customerId, setCustomerId] = useState("");
+  const [projectId, setProjectId] = useState("");
+  const [category, setCategory] = useState("kunde");
+  const [priority, setPriority] = useState("mittel");
+
+  function toggleEmp(id) {
+    setEmployeeIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  }
+
+  function submit(e) {
+    e.preventDefault();
+    if (!title.trim() || employeeIds.length === 0) return;
+    onSave({
+      id: uid("ap"), title: title.trim(), description, date, start, end, location,
+      employeeIds, customerId: customerId || null, projectId: projectId || null,
+      category, priority, status: "geplant",
+    });
+  }
+
+  return (
+    <Modal title="Neuer Termin" onClose={onClose} width={520}>
+      <form onSubmit={submit}>
+        <label className="mf-label">Titel</label>
+        <input className="mf-input" style={{ marginBottom: 12 }} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="z. B. Kundentermin Müller GmbH" required />
+
+        <label className="mf-label">Beschreibung</label>
+        <textarea className="mf-input" style={{ marginBottom: 12, minHeight: 60, resize: "vertical" }} value={description} onChange={(e) => setDescription(e.target.value)} />
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 12 }}>
+          <div><label className="mf-label">Datum</label><input type="date" className="mf-input" value={date} onChange={(e) => setDate(e.target.value)} required /></div>
+          <div><label className="mf-label">Start</label><input type="time" className="mf-input" value={start} onChange={(e) => setStart(e.target.value)} required /></div>
+          <div><label className="mf-label">Ende</label><input type="time" className="mf-input" value={end} onChange={(e) => setEnd(e.target.value)} required /></div>
+        </div>
+
+        <label className="mf-label">Ort</label>
+        <input className="mf-input" style={{ marginBottom: 12 }} value={location} onChange={(e) => setLocation(e.target.value)} placeholder="z. B. Stuttgart" />
+
+        {me.role === "chef" && (
+          <>
+            <label className="mf-label">Mitarbeiter</label>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+              {db.users.filter((u) => u.role === "mitarbeiter" && u.active).map((u) => (
+                <button type="button" key={u.id} onClick={() => toggleEmp(u.id)}
+                  className="mf-btn" style={{
+                    padding: "6px 12px", fontSize: 12.5,
+                    background: employeeIds.includes(u.id) ? "var(--blue-600)" : "var(--surface-2)",
+                    color: employeeIds.includes(u.id) ? "#fff" : "var(--text)",
+                  }}>{u.name}</button>
+              ))}
+            </div>
+          </>
+        )}
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+          <div>
+            <label className="mf-label">Kunde</label>
+            <select className="mf-input" value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
+              <option value="">–</option>
+              {db.customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="mf-label">Baustelle</label>
+            <select className="mf-input" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+              <option value="">–</option>
+              {db.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 18 }}>
+          <div>
+            <label className="mf-label">Kategorie</label>
+            <select className="mf-input" value={category} onChange={(e) => setCategory(e.target.value)}>
+              {Object.entries(CATEGORY_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="mf-label">Priorität</label>
+            <select className="mf-input" value={priority} onChange={(e) => setPriority(e.target.value)}>
+              {Object.entries(PRIORITY_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <button className="mf-btn mf-btn-primary" style={{ width: "100%", justifyContent: "center" }} type="submit">Termin erstellen</button>
+      </form>
+    </Modal>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/*  Calendar (personal)                                                     */
+/* ---------------------------------------------------------------------- */
+
+function MonthGrid({ monthDate, appointmentsByDay, onDayClick, selectedIso }) {
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const first = new Date(year, month, 1);
+  const startOffset = (first.getDay() + 6) % 7; // Monday-first
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < startOffset; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, month, d));
+  const todayIso = isoDay(new Date());
+
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 4, marginBottom: 6 }}>
+        {["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"].map((d) => (
+          <div key={d} style={{ textAlign: "center", fontSize: 11.5, fontWeight: 700, color: "var(--text-muted)", padding: "4px 0" }}>{d}</div>
+        ))}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 4 }}>
+        {cells.map((d, i) => {
+          if (!d) return <div key={i} />;
+          const iso = isoDay(d);
+          const appts = appointmentsByDay[iso] || [];
+          const isToday = iso === todayIso;
+          const isSelected = iso === selectedIso;
+          return (
+            <div key={i} onClick={() => onDayClick(iso)} style={{
+              minHeight: 68, borderRadius: 10, padding: 6, cursor: "pointer",
+              background: isSelected ? "var(--blue-100)" : "var(--surface)",
+              border: isToday ? "1.5px solid var(--blue-600)" : "1px solid var(--border)",
+            }}>
+              <div style={{ fontSize: 12, fontWeight: isToday ? 800 : 600, color: isToday ? "var(--blue-600)" : "var(--text)" }}>{d.getDate()}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 4 }}>
+                {appts.slice(0, 2).map((a) => {
+                  const meta = CATEGORY_META[a.category] || CATEGORY_META.allgemein;
+                  return <div key={a.id} style={{ fontSize: 10, fontWeight: 600, color: meta.color, background: meta.bg, borderRadius: 4, padding: "1px 4px", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{a.title}</div>;
+                })}
+                {appts.length > 2 && <div style={{ fontSize: 9.5, color: "var(--text-muted)", fontWeight: 700 }}>+{appts.length - 2} weitere</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CalendarView({ db, me, updateDB, pushNotification, showToast }) {
+  const [monthDate, setMonthDate] = useState(new Date());
+  const [selectedIso, setSelectedIso] = useState(isoDay(new Date()));
+  const [showModal, setShowModal] = useState(false);
+  const [viewMode, setViewMode] = useState("monat");
+
+  const visible = me.role === "chef" ? db.appointments : db.appointments.filter((a) => a.employeeIds.includes(me.id));
+
+  const byDay = useMemo(() => {
+    const map = {};
+    visible.forEach((a) => { (map[a.date] = map[a.date] || []).push(a); });
+    Object.values(map).forEach((arr) => arr.sort((a, b) => a.start.localeCompare(b.start)));
+    return map;
+  }, [visible]);
+
+  function saveAppointment(appt) {
+    updateDB((prev) => {
+      const next = { ...prev, appointments: [...prev.appointments, appt] };
+      if (me.role === "chef") {
+        appt.employeeIds.forEach((eid) => {
+          if (eid !== me.id) next.notifications = [{ id: uid("n"), audience: `user:${eid}`, text: `Neuer Termin von deinem Chef: ${appt.title}`, time: Date.now(), read: false }, ...next.notifications];
+        });
+      }
+      return next;
+    });
+    setShowModal(false);
+    showToast("Termin wurde erstellt.");
+  }
+
+  const selectedAppts = byDay[selectedIso] || [];
+  const monthLabel = monthDate.toLocaleDateString("de-DE", { month: "long", year: "numeric" });
+
+  const dayList = useMemo(() => {
+    return Object.entries(byDay).sort(([a], [b]) => a.localeCompare(b)).filter(([d]) => d >= isoDay(new Date())).slice(0, 8);
+  }, [byDay]);
+
+  return (
+    <div className="mf-fade-in">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
+        <h1 className="mf-heading" style={{ fontSize: 22, fontWeight: 800 }}>Kalender</h1>
+        <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", background: "var(--surface-2)", borderRadius: 10, padding: 3 }}>
+            {["monat", "liste"].map((v) => (
+              <button key={v} onClick={() => setViewMode(v)} className="mf-btn" style={{ padding: "6px 14px", fontSize: 12.5, background: viewMode === v ? "var(--surface)" : "transparent", boxShadow: viewMode === v ? "var(--shadow)" : "none" }}>{v[0].toUpperCase() + v.slice(1)}</button>
+            ))}
+          </div>
+          <button className="mf-btn mf-btn-primary" onClick={() => setShowModal(true)}><Plus size={15} /> Neuer Termin</button>
+        </div>
+      </div>
+
+      {viewMode === "monat" ? (
+        <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 18 }} className="mf-dash-grid">
+          <div className="mf-card" style={{ padding: 18 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <button className="mf-btn mf-btn-ghost" style={{ padding: 6 }} onClick={() => setMonthDate(new Date(monthDate.getFullYear(), monthDate.getMonth() - 1, 1))}><ChevronLeft size={16} /></button>
+              <span className="mf-heading" style={{ fontWeight: 800, fontSize: 15, textTransform: "capitalize" }}>{monthLabel}</span>
+              <button className="mf-btn mf-btn-ghost" style={{ padding: 6 }} onClick={() => setMonthDate(new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 1))}><ChevronRight size={16} /></button>
+            </div>
+            <MonthGrid monthDate={monthDate} appointmentsByDay={byDay} onDayClick={setSelectedIso} selectedIso={selectedIso} />
+          </div>
+          <div className="mf-card" style={{ padding: 18 }}>
+            <h3 className="mf-heading" style={{ fontSize: 15, fontWeight: 800, marginBottom: 4 }}>{fmtDate(selectedIso)}</h3>
+            <p style={{ fontSize: 12.5, color: "var(--text-muted)", marginBottom: 14 }}>{selectedAppts.length} Termin{selectedAppts.length !== 1 ? "e" : ""}</p>
+            {selectedAppts.length === 0 ? <EmptyState icon={CalendarDays} text="Keine Termine" /> : selectedAppts.map((a) => <AppointmentRow key={a.id} a={a} db={db} />)}
+          </div>
+        </div>
+      ) : (
+        <div className="mf-card" style={{ padding: 18 }}>
+          {dayList.length === 0 ? <EmptyState icon={CalendarDays} text="Keine anstehenden Termine" /> : dayList.map(([d, appts]) => (
+            <div key={d} style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 800, color: "var(--blue-600)", marginBottom: 8, textTransform: "capitalize" }}>
+                {new Date(d).toLocaleDateString("de-DE", { weekday: "long", day: "2-digit", month: "long" })}
+              </div>
+              {appts.map((a) => <AppointmentRow key={a.id} a={a} db={db} />)}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showModal && <AppointmentModal db={db} me={me} defaultDate={selectedIso} onClose={() => setShowModal(false)} onSave={saveAppointment} />}
+    </div>
+  );
+}
+
+function AppointmentRow({ a, db }) {
+  const meta = CATEGORY_META[a.category] || CATEGORY_META.allgemein;
+  const emps = a.employeeIds.map((id) => db.users.find((u) => u.id === id)?.name).filter(Boolean);
+  return (
+    <div style={{ display: "flex", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
+      <div style={{ width: 3, borderRadius: 3, background: meta.color }} />
+      <div style={{ flex: 1 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+          <span style={{ fontWeight: 700, fontSize: 14 }}>{a.title}</span>
+          <Badge color={meta.color} bg={meta.bg}>{meta.label}</Badge>
+        </div>
+        <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 3, display: "flex", flexWrap: "wrap", gap: 10 }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Clock size={12} /> {a.start}–{a.end}</span>
+          {a.location && <span style={{ display: "flex", alignItems: "center", gap: 4 }}><MapPin size={12} /> {a.location}</span>}
+          {emps.length > 0 && <span>{emps.join(", ")}</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/*  Team calendar (chef)                                                    */
+/* ---------------------------------------------------------------------- */
+
+function TeamCalendarView({ db }) {
+  const [dateIso, setDateIso] = useState(isoDay(new Date()));
+  const employees = db.users.filter((u) => u.role === "mitarbeiter" && u.active);
+  const [filter, setFilter] = useState(employees.map((e) => e.id));
+
+  function toggle(id) {
+    setFilter((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  }
+
+  const dayAppts = db.appointments.filter((a) => a.date === dateIso);
+
+  return (
+    <div className="mf-fade-in">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
+        <h1 className="mf-heading" style={{ fontSize: 22, fontWeight: 800 }}>Teamkalender</h1>
+        <input type="date" className="mf-input" style={{ width: 170 }} value={dateIso} onChange={(e) => setDateIso(e.target.value)} />
+      </div>
+
+      <div className="mf-card" style={{ padding: 16, marginBottom: 16 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--text-muted)", marginBottom: 10 }}>MITARBEITER FILTERN</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button onClick={() => setFilter(filter.length === employees.length ? [] : employees.map(e => e.id))} className="mf-btn" style={{ padding: "6px 12px", fontSize: 12.5, background: "var(--surface-2)" }}>
+            {filter.length === employees.length ? "Alle abwählen" : "Alle wählen"}
+          </button>
+          {employees.map((u) => (
+            <button key={u.id} onClick={() => toggle(u.id)} className="mf-btn" style={{ padding: "6px 12px", fontSize: 12.5, background: filter.includes(u.id) ? "var(--blue-600)" : "var(--surface-2)", color: filter.includes(u.id) ? "#fff" : "var(--text)" }}>{u.name}</button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.max(filter.length, 1)}, 1fr)`, gap: 12, overflowX: "auto" }}>
+        {employees.filter((e) => filter.includes(e.id)).map((u) => {
+          const appts = dayAppts.filter((a) => a.employeeIds.includes(u.id)).sort((a, b) => a.start.localeCompare(b.start));
+          const s = STATUS_META[u.status] || STATUS_META.verfuegbar;
+          return (
+            <div key={u.id} className="mf-card" style={{ padding: 14, minWidth: 190 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <Avatar name={u.name} size={28} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>{u.name}</div>
+                  <Badge color={s.color} bg={s.bg}>{s.label}</Badge>
+                </div>
+              </div>
+              {appts.length === 0 ? <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Keine Termine</div> : appts.map((a) => {
+                const meta = CATEGORY_META[a.category] || CATEGORY_META.allgemein;
+                return (
+                  <div key={a.id} style={{ borderLeft: `3px solid ${meta.color}`, paddingLeft: 8, marginBottom: 8 }}>
+                    <div style={{ fontSize: 11.5, fontWeight: 700, color: meta.color }}>{a.start}–{a.end}</div>
+                    <div style={{ fontSize: 12.5, fontWeight: 600 }}>{a.title}</div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/*  Tasks                                                                    */
+/* ---------------------------------------------------------------------- */
+
+function TaskModal({ db, me, onClose, onSave }) {
+  const [title, setTitle] = useState("");
+  const [projectId, setProjectId] = useState(db.projects[0]?.id || "");
+  const [assigneeId, setAssigneeId] = useState(me.role === "chef" ? (db.users.find(u => u.role === "mitarbeiter")?.id || "") : me.id);
+  const [due, setDue] = useState(isoDay(new Date()));
+  const [priority, setPriority] = useState("mittel");
+
+  function submit(e) {
+    e.preventDefault();
+    if (!title.trim()) return;
+    onSave({ id: uid("t"), title: title.trim(), projectId: projectId || null, assigneeId, due, priority, status: "offen" });
+  }
+
+  return (
+    <Modal title="Neue Aufgabe" onClose={onClose} width={440}>
+      <form onSubmit={submit}>
+        <label className="mf-label">Aufgabe</label>
+        <input className="mf-input" style={{ marginBottom: 12 }} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="z. B. Wände vorbereiten" required />
+
+        <label className="mf-label">Baustelle</label>
+        <select className="mf-input" style={{ marginBottom: 12 }} value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+          <option value="">–</option>
+          {db.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+
+        {me.role === "chef" && (
+          <>
+            <label className="mf-label">Zuständig</label>
+            <select className="mf-input" style={{ marginBottom: 12 }} value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
+              {db.users.filter((u) => u.role === "mitarbeiter" && u.active).map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+            </select>
+          </>
+        )}
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 18 }}>
+          <div><label className="mf-label">Fällig</label><input type="date" className="mf-input" value={due} onChange={(e) => setDue(e.target.value)} /></div>
+          <div>
+            <label className="mf-label">Priorität</label>
+            <select className="mf-input" value={priority} onChange={(e) => setPriority(e.target.value)}>
+              {Object.entries(PRIORITY_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </select>
+          </div>
+        </div>
+        <button className="mf-btn mf-btn-primary" style={{ width: "100%", justifyContent: "center" }} type="submit">Aufgabe erstellen</button>
+      </form>
+    </Modal>
+  );
+}
+
+function TasksView({ db, me, updateDB, showToast }) {
+  const [showModal, setShowModal] = useState(false);
+  const [filterStatus, setFilterStatus] = useState("alle");
+  const [justDone, setJustDone] = useState(null);
+
+  const base = me.role === "chef" ? db.tasks : db.tasks.filter((t) => t.assigneeId === me.id);
+  const filtered = filterStatus === "alle" ? base : base.filter((t) => t.status === filterStatus);
+  const sorted = [...filtered].sort((a, b) => (a.status === "erledigt") - (b.status === "erledigt") || a.due.localeCompare(b.due));
+
+  function saveTask(t) {
+    updateDB((prev) => {
+      const next = { ...prev, tasks: [...prev.tasks, t] };
+      if (me.role === "chef" && t.assigneeId !== me.id) {
+        next.notifications = [{ id: uid("n"), audience: `user:${t.assigneeId}`, text: `Neue Aufgabe: ${t.title}`, time: Date.now(), read: false }, ...next.notifications];
+      }
+      return next;
+    });
+    setShowModal(false);
+    showToast("Aufgabe wurde erstellt.");
+  }
+
+  function cycleStatus(t) {
+    const order = ["offen", "in_bearbeitung", "erledigt"];
+    const nextStatus = order[(order.indexOf(t.status) + 1) % order.length];
+    if (nextStatus === "erledigt") setJustDone(t.id);
+    updateDB((prev) => ({ ...prev, tasks: prev.tasks.map((x) => x.id === t.id ? { ...x, status: nextStatus } : x) }));
+  }
+
+  return (
+    <div className="mf-fade-in">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
+        <h1 className="mf-heading" style={{ fontSize: 22, fontWeight: 800 }}>Aufgaben</h1>
+        <button className="mf-btn mf-btn-primary" onClick={() => setShowModal(true)}><Plus size={15} /> Neue Aufgabe</button>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        {["alle", "offen", "in_bearbeitung", "erledigt"].map((s) => (
+          <button key={s} onClick={() => setFilterStatus(s)} className="mf-btn" style={{ padding: "6px 14px", fontSize: 12.5, background: filterStatus === s ? "var(--blue-600)" : "var(--surface-2)", color: filterStatus === s ? "#fff" : "var(--text)" }}>
+            {s === "alle" ? "Alle" : s === "in_bearbeitung" ? "In Bearbeitung" : s[0].toUpperCase() + s.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      <div className="mf-card" style={{ padding: 6 }}>
+        {sorted.length === 0 ? <EmptyState icon={CheckSquare} text="Keine Aufgaben" /> : sorted.map((t) => {
+          const p = PRIORITY_META[t.priority];
+          const project = db.projects.find((pr) => pr.id === t.projectId);
+          const assignee = db.users.find((u) => u.id === t.assigneeId);
+          const done = t.status === "erledigt";
+          return (
+            <div key={t.id} className={justDone === t.id ? "mf-task-done" : ""} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
+              <button onClick={() => cycleStatus(t)} style={{
+                width: 22, height: 22, borderRadius: 7, border: `2px solid ${done ? "var(--green-500)" : "var(--border)"}`,
+                background: done ? "var(--green-500)" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0,
+              }}>{done && <Check size={13} color="#fff" />}</button>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, textDecoration: done ? "line-through" : "none", color: done ? "var(--text-muted)" : "var(--text)" }}>{t.title}</div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)", display: "flex", gap: 8, flexWrap: "wrap", marginTop: 2 }}>
+                  {project && <span>{project.name}</span>}
+                  {me.role === "chef" && assignee && <span>· {assignee.name}</span>}
+                  <span>· Fällig {fmtDateShort(t.due)}</span>
+                </div>
+              </div>
+              {t.status === "in_bearbeitung" && !done && <Badge color="var(--blue-600)" bg="var(--blue-100)">In Bearbeitung</Badge>}
+              <Badge color={p.color} bg={p.bg}>{p.label}</Badge>
+            </div>
+          );
+        })}
+      </div>
+
+      {showModal && <TaskModal db={db} me={me} onClose={() => setShowModal(false)} onSave={saveTask} />}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/*  Projects / Baustellen                                                   */
+/* ---------------------------------------------------------------------- */
+
+const PROJECT_STATUS_META = {
+  geplant: { label: "Geplant", color: "#5B84B8", bg: "var(--blue-100)" },
+  in_bearbeitung: { label: "In Bearbeitung", color: "var(--yellow-600)", bg: "var(--yellow-100)" },
+  abgeschlossen: { label: "Abgeschlossen", color: "var(--green-500)", bg: "var(--green-100)" },
+};
+
+function ProjectModal({ db, onClose, onSave }) {
+  const [name, setName] = useState("");
+  const [customerId, setCustomerId] = useState(db.customers[0]?.id || "");
+  const [address, setAddress] = useState("");
+  const [start, setStart] = useState(isoDay(new Date()));
+  const [end, setEnd] = useState(isoDay(addDays(new Date(), 10)));
+  const [employeeIds, setEmployeeIds] = useState([]);
+
+  function toggle(id) { setEmployeeIds((prev) => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]); }
+
+  function submit(e) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    onSave({ id: uid("p"), name: name.trim(), customerId, address, start, end, employeeIds, status: "geplant", progress: 0, tasks: [], materials: [] });
+  }
+
+  return (
+    <Modal title="Neue Baustelle" onClose={onClose} width={480}>
+      <form onSubmit={submit}>
+        <label className="mf-label">Bezeichnung</label>
+        <input className="mf-input" style={{ marginBottom: 12 }} value={name} onChange={(e) => setName(e.target.value)} placeholder="z. B. Müller GmbH – Bürogebäude" required />
+
+        <label className="mf-label">Kunde</label>
+        <select className="mf-input" style={{ marginBottom: 12 }} value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
+          {db.customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+
+        <label className="mf-label">Adresse</label>
+        <input className="mf-input" style={{ marginBottom: 12 }} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Straße, Stadt" />
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+          <div><label className="mf-label">Start</label><input type="date" className="mf-input" value={start} onChange={(e) => setStart(e.target.value)} /></div>
+          <div><label className="mf-label">Ende</label><input type="date" className="mf-input" value={end} onChange={(e) => setEnd(e.target.value)} /></div>
+        </div>
+
+        <label className="mf-label">Mitarbeiter</label>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18 }}>
+          {db.users.filter((u) => u.role === "mitarbeiter" && u.active).map((u) => (
+            <button type="button" key={u.id} onClick={() => toggle(u.id)} className="mf-btn" style={{ padding: "6px 12px", fontSize: 12.5, background: employeeIds.includes(u.id) ? "var(--blue-600)" : "var(--surface-2)", color: employeeIds.includes(u.id) ? "#fff" : "var(--text)" }}>{u.name}</button>
+          ))}
+        </div>
+        <button className="mf-btn mf-btn-primary" style={{ width: "100%", justifyContent: "center" }} type="submit">Baustelle anlegen</button>
+      </form>
+    </Modal>
+  );
+}
+
+function ProjectsView({ db, me, updateDB, go, showToast }) {
+  const [showModal, setShowModal] = useState(false);
+  const list = me.role === "chef" ? db.projects : db.projects.filter((p) => p.employeeIds.includes(me.id));
+
+  function saveProject(p) {
+    updateDB((prev) => ({ ...prev, projects: [...prev.projects, p] }));
+    setShowModal(false);
+    showToast("Baustelle wurde angelegt.");
+  }
+
+  return (
+    <div className="mf-fade-in">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
+        <h1 className="mf-heading" style={{ fontSize: 22, fontWeight: 800 }}>Baustellen &amp; Aufträge</h1>
+        {me.role === "chef" && <button className="mf-btn mf-btn-primary" onClick={() => setShowModal(true)}><Plus size={15} /> Neue Baustelle</button>}
+      </div>
+
+      {list.length === 0 ? <EmptyState icon={Building2} text="Keine Baustellen" /> : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
+          {list.map((p) => {
+            const s = PROJECT_STATUS_META[p.status];
+            const customer = db.customers.find((c) => c.id === p.customerId);
+            return (
+              <div key={p.id} onClick={() => go("projectDetail", { id: p.id })} className="mf-card" style={{ padding: 18, cursor: "pointer" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                  <span style={{ fontWeight: 700, fontSize: 15 }}>{p.name}</span>
+                  <Badge color={s.color} bg={s.bg}>{s.label}</Badge>
+                </div>
+                <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginBottom: 14 }}>{customer?.name} · {p.address}</div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
+                  <span>Fortschritt</span><span style={{ color: "var(--blue-600)" }}>{p.progress}%</span>
+                </div>
+                <div style={{ height: 8, borderRadius: 8, background: "var(--surface-2)", overflow: "hidden", marginBottom: 12 }}>
+                  <div style={{ height: "100%", width: `${p.progress}%`, background: "linear-gradient(90deg, var(--blue-600), var(--yellow-500))" }} />
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ display: "flex" }}>
+                    {p.employeeIds.map((id, i) => {
+                      const u = db.users.find((u) => u.id === id);
+                      return u ? <div key={id} style={{ marginLeft: i > 0 ? -8 : 0, border: "2px solid var(--surface)", borderRadius: "50%" }}><Avatar name={u.name} size={26} /></div> : null;
+                    })}
+                  </div>
+                  <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>bis {fmtDateShort(p.end)}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {showModal && <ProjectModal db={db} onClose={() => setShowModal(false)} onSave={saveProject} />}
+    </div>
+  );
+}
+
+function ProjectDetailView({ db, me, projectId, updateDB, go, showToast }) {
+  const p = db.projects.find((pr) => pr.id === projectId);
+  if (!p) return <EmptyState icon={Building2} text="Baustelle nicht gefunden" />;
+  const customer = db.customers.find((c) => c.id === p.customerId);
+  const s = PROJECT_STATUS_META[p.status];
+  const tasks = db.tasks.filter((t) => t.projectId === p.id);
+  const appts = db.appointments.filter((a) => a.projectId === p.id).sort((a, b) => a.date.localeCompare(b.date));
+
+  function setProgress(v) {
+    updateDB((prev) => ({ ...prev, projects: prev.projects.map((x) => x.id === p.id ? { ...x, progress: v } : x) }));
+  }
+
+  return (
+    <div className="mf-fade-in">
+      <button onClick={() => go("projects")} className="mf-btn mf-btn-ghost" style={{ marginBottom: 14, padding: "6px 12px", fontSize: 12.5 }}><ChevronLeft size={14} /> Zurück zu Baustellen</button>
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+            <h1 className="mf-heading" style={{ fontSize: 22, fontWeight: 800 }}>{p.name}</h1>
+            <Badge color={s.color} bg={s.bg}>{s.label}</Badge>
+          </div>
+          <div style={{ color: "var(--text-muted)", fontSize: 13.5, display: "flex", gap: 4, alignItems: "center" }}><MapPin size={13} /> {p.address} · {customer?.name}</div>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 20 }}>
+        <StatCard label="Projektfortschritt" value={`${p.progress}%`} icon={Sparkles} accent />
+        <StatCard label="Mitarbeiter" value={p.employeeIds.length} icon={Users} />
+        <StatCard label="Offene Aufgaben" value={tasks.filter((t) => t.status !== "erledigt").length} icon={CheckSquare} />
+        <StatCard label="Zeitraum" value={`${fmtDateShort(p.start)}–${fmtDateShort(p.end)}`} icon={CalendarDays} />
+      </div>
+
+      <div className="mf-card" style={{ padding: 18, marginBottom: 18 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+          <span style={{ fontWeight: 700, fontSize: 13.5 }}>Fortschritt anpassen</span>
+          <span style={{ fontWeight: 800, color: "var(--blue-600)" }}>{p.progress}%</span>
+        </div>
+        {me.role === "chef" ? (
+          <input type="range" min={0} max={100} value={p.progress} onChange={(e) => setProgress(Number(e.target.value))} style={{ width: "100%", accentColor: "var(--blue-600)" }} />
+        ) : (
+          <div style={{ height: 8, borderRadius: 8, background: "var(--surface-2)", overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${p.progress}%`, background: "linear-gradient(90deg, var(--blue-600), var(--yellow-500))" }} />
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }} className="mf-dash-grid">
+        <div className="mf-card" style={{ padding: 18 }}>
+          <h3 className="mf-heading" style={{ fontSize: 15, fontWeight: 800, marginBottom: 12 }}>Aufgaben</h3>
+          {tasks.length === 0 ? <div style={{ fontSize: 13, color: "var(--text-muted)" }}>Noch keine Aufgaben verknüpft.</div> : tasks.map((t) => {
+            const assignee = db.users.find((u) => u.id === t.assigneeId);
+            return (
+              <div key={t.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--border)", fontSize: 13 }}>
+                <span style={{ textDecoration: t.status === "erledigt" ? "line-through" : "none", color: t.status === "erledigt" ? "var(--text-muted)" : "var(--text)" }}>{t.title}</span>
+                <span style={{ color: "var(--text-muted)" }}>{assignee?.name}</span>
+              </div>
+            );
+          })}
+          <div style={{ marginTop: 10, fontSize: 12.5, fontWeight: 700, color: "var(--text-muted)" }}>ARBEITSSCHRITTE</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+            {p.tasks.map((t, i) => <Badge key={i} color="var(--blue-700)" bg="var(--blue-100)">{t}</Badge>)}
+          </div>
+        </div>
+
+        <div className="mf-card" style={{ padding: 18 }}>
+          <h3 className="mf-heading" style={{ fontSize: 15, fontWeight: 800, marginBottom: 12 }}>Material</h3>
+          {p.materials.map((m, i) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--border)", fontSize: 13 }}>
+              <span>{m.name}</span><span style={{ fontWeight: 700 }}>{m.amount}</span>
+            </div>
+          ))}
+          <h3 className="mf-heading" style={{ fontSize: 15, fontWeight: 800, margin: "18px 0 10px" }}>Nächster Termin</h3>
+          {appts.filter((a) => a.date >= isoDay(new Date())).length === 0 ? <div style={{ fontSize: 13, color: "var(--text-muted)" }}>Kein anstehender Termin.</div> :
+            (() => { const a = appts.filter((a) => a.date >= isoDay(new Date()))[0]; return <div style={{ fontSize: 13 }}>{fmtDateShort(a.date)} – {a.start} Uhr: {a.title}</div>; })()}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/*  Team & employee detail                                                  */
+/* ---------------------------------------------------------------------- */
+
+function NewEmployeeModal({ onClose, onSave }) {
+  const [name, setName] = useState("");
+  const [position, setPosition] = useState("Maler/in");
+  const [email, setEmail] = useState("");
+
+  function submit(e) {
+    e.preventDefault();
+    if (!name.trim() || !email.trim()) return;
+    onSave({ id: uid("u"), role: "mitarbeiter", name: name.trim(), position, email: email.trim(), password: "demo", active: true, status: "verfuegbar" });
+  }
+
+  return (
+    <Modal title="Neuer Mitarbeiter" onClose={onClose} width={420}>
+      <form onSubmit={submit}>
+        <label className="mf-label">Name</label>
+        <input className="mf-input" style={{ marginBottom: 12 }} value={name} onChange={(e) => setName(e.target.value)} required />
+        <label className="mf-label">Position</label>
+        <input className="mf-input" style={{ marginBottom: 12 }} value={position} onChange={(e) => setPosition(e.target.value)} />
+        <label className="mf-label">E-Mail</label>
+        <input type="email" className="mf-input" style={{ marginBottom: 6 }} value={email} onChange={(e) => setEmail(e.target.value)} required />
+        <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginBottom: 16 }}>Das Start-Passwort lautet automatisch „demo“.</div>
+        <button className="mf-btn mf-btn-primary" style={{ width: "100%", justifyContent: "center" }} type="submit">Mitarbeiter anlegen</button>
+      </form>
+    </Modal>
+  );
+}
+
+function TeamView({ db, updateDB, go, showToast }) {
+  const [showModal, setShowModal] = useState(false);
+  const employees = db.users.filter((u) => u.role === "mitarbeiter");
+
+  function saveEmployee(u) {
+    updateDB((prev) => ({ ...prev, users: [...prev.users, u] }));
+    setShowModal(false);
+    showToast("Mitarbeiter wurde angelegt.");
+  }
+  function toggleActive(id) {
+    updateDB((prev) => ({ ...prev, users: prev.users.map((u) => u.id === id ? { ...u, active: !u.active } : u) }));
+  }
+
+  return (
+    <div className="mf-fade-in">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
+        <h1 className="mf-heading" style={{ fontSize: 22, fontWeight: 800 }}>Team</h1>
+        <button className="mf-btn mf-btn-primary" onClick={() => setShowModal(true)}><Plus size={15} /> Mitarbeiter anlegen</button>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 14 }}>
+        {employees.map((u) => {
+          const s = STATUS_META[u.status] || STATUS_META.verfuegbar;
+          return (
+            <div key={u.id} className="mf-card" style={{ padding: 16, opacity: u.active ? 1 : 0.55 }}>
+              <div onClick={() => go("teamMemberDetail", { id: u.id })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", marginBottom: 12 }}>
+                <Avatar name={u.name} size={38} />
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14.5 }}>{u.name}</div>
+                  <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{u.position}</div>
+                </div>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <Badge color={s.color} bg={s.bg}>{u.active ? s.label : "Deaktiviert"}</Badge>
+                <button onClick={() => toggleActive(u.id)} className="mf-btn mf-btn-ghost" style={{ fontSize: 11.5, padding: "5px 10px" }}>{u.active ? "Deaktivieren" : "Aktivieren"}</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {showModal && <NewEmployeeModal onClose={() => setShowModal(false)} onSave={saveEmployee} />}
+    </div>
+  );
+}
+
+function TeamMemberDetailView({ db, memberId, go }) {
+  const u = db.users.find((x) => x.id === memberId);
+  if (!u) return <EmptyState icon={UserCircle2} text="Mitarbeiter nicht gefunden" />;
+  const appts = db.appointments.filter((a) => a.employeeIds.includes(u.id) && a.date >= isoDay(new Date())).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 6);
+  const tasks = db.tasks.filter((t) => t.assigneeId === u.id);
+  const projects = db.projects.filter((p) => p.employeeIds.includes(u.id));
+  const absences = db.absences.filter((a) => a.employeeId === u.id);
+  const s = STATUS_META[u.status] || STATUS_META.verfuegbar;
+
+  return (
+    <div className="mf-fade-in">
+      <button onClick={() => go("team")} className="mf-btn mf-btn-ghost" style={{ marginBottom: 14, padding: "6px 12px", fontSize: 12.5 }}><ChevronLeft size={14} /> Zurück zum Team</button>
+      <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 22 }}>
+        <Avatar name={u.name} size={54} />
+        <div>
+          <h1 className="mf-heading" style={{ fontSize: 21, fontWeight: 800 }}>{u.name}</h1>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 3 }}>
+            <span style={{ color: "var(--text-muted)", fontSize: 13.5 }}>{u.position}</span>
+            <Badge color={s.color} bg={s.bg}>{s.label}</Badge>
+          </div>
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }} className="mf-dash-grid">
+        <div className="mf-card" style={{ padding: 18 }}>
+          <h3 className="mf-heading" style={{ fontSize: 15, fontWeight: 800, marginBottom: 12 }}>Anstehende Termine</h3>
+          {appts.length === 0 ? <div style={{ fontSize: 13, color: "var(--text-muted)" }}>Keine anstehenden Termine.</div> : appts.map((a) => <AppointmentRow key={a.id} a={a} db={db} />)}
+        </div>
+        <div className="mf-card" style={{ padding: 18 }}>
+          <h3 className="mf-heading" style={{ fontSize: 15, fontWeight: 800, marginBottom: 12 }}>Aufgaben &amp; Projekte</h3>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--text-muted)", marginBottom: 6 }}>PROJEKTE</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
+            {projects.map((p) => <Badge key={p.id} color="var(--blue-700)" bg="var(--blue-100)">{p.name}</Badge>)}
+          </div>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--text-muted)", marginBottom: 6 }}>OFFENE AUFGABEN</div>
+          {tasks.filter((t) => t.status !== "erledigt").length === 0 ? <div style={{ fontSize: 13, color: "var(--text-muted)" }}>Keine offenen Aufgaben.</div> :
+            tasks.filter((t) => t.status !== "erledigt").map((t) => <div key={t.id} style={{ fontSize: 13, padding: "5px 0" }}>{t.title}</div>)}
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--text-muted)", margin: "14px 0 6px" }}>ABWESENHEITEN</div>
+          {absences.length === 0 ? <div style={{ fontSize: 13, color: "var(--text-muted)" }}>Keine Einträge.</div> : absences.map((a) => (
+            <div key={a.id} style={{ fontSize: 13, padding: "5px 0" }}>{fmtDateShort(a.start)} – {fmtDateShort(a.end)} · {a.type}</div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/*  Customers                                                               */
+/* ---------------------------------------------------------------------- */
+
+function CustomerModal({ onClose, onSave }) {
+  const [name, setName] = useState("");
+  const [contact, setContact] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [address, setAddress] = useState("");
+
+  function submit(e) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    onSave({ id: uid("c"), name: name.trim(), contact, phone, email, address, notes: "" });
+  }
+  return (
+    <Modal title="Neuer Kunde" onClose={onClose} width={420}>
+      <form onSubmit={submit}>
+        <label className="mf-label">Name</label>
+        <input className="mf-input" style={{ marginBottom: 12 }} value={name} onChange={(e) => setName(e.target.value)} required />
+        <label className="mf-label">Ansprechpartner</label>
+        <input className="mf-input" style={{ marginBottom: 12 }} value={contact} onChange={(e) => setContact(e.target.value)} />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+          <div><label className="mf-label">Telefon</label><input className="mf-input" value={phone} onChange={(e) => setPhone(e.target.value)} /></div>
+          <div><label className="mf-label">E-Mail</label><input className="mf-input" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+        </div>
+        <label className="mf-label">Adresse</label>
+        <input className="mf-input" style={{ marginBottom: 18 }} value={address} onChange={(e) => setAddress(e.target.value)} />
+        <button className="mf-btn mf-btn-primary" style={{ width: "100%", justifyContent: "center" }} type="submit">Kunde speichern</button>
+      </form>
+    </Modal>
+  );
+}
+
+function CustomersView({ db, me, updateDB, go, showToast }) {
+  const [showModal, setShowModal] = useState(false);
+  function saveCustomer(c) {
+    updateDB((prev) => ({ ...prev, customers: [...prev.customers, c] }));
+    setShowModal(false);
+    showToast("Kunde wurde gespeichert.");
+  }
+  return (
+    <div className="mf-fade-in">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
+        <h1 className="mf-heading" style={{ fontSize: 22, fontWeight: 800 }}>Kunden</h1>
+        {me.role === "chef" && <button className="mf-btn mf-btn-primary" onClick={() => setShowModal(true)}><Plus size={15} /> Neuer Kunde</button>}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
+        {db.customers.map((c) => {
+          const projects = db.projects.filter((p) => p.customerId === c.id);
+          const nextAppt = db.appointments.filter((a) => a.customerId === c.id && a.date >= isoDay(new Date())).sort((a, b) => a.date.localeCompare(b.date))[0];
+          return (
+            <div key={c.id} onClick={() => go("customerDetail", { id: c.id })} className="mf-card" style={{ padding: 16, cursor: "pointer" }}>
+              <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{c.name}</div>
+              <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginBottom: 10 }}>{c.contact}</div>
+              <div style={{ display: "flex", gap: 14, fontSize: 12.5 }}>
+                <span>Projekte: <b>{projects.length}</b></span>
+                {nextAppt && <span>Nächster Termin: <b>{fmtDateShort(nextAppt.date)}</b></span>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {showModal && <CustomerModal onClose={() => setShowModal(false)} onSave={saveCustomer} />}
+    </div>
+  );
+}
+
+function CustomerDetailView({ db, customerId, go }) {
+  const c = db.customers.find((x) => x.id === customerId);
+  if (!c) return <EmptyState icon={UserCircle2} text="Kunde nicht gefunden" />;
+  const projects = db.projects.filter((p) => p.customerId === c.id);
+  const appts = db.appointments.filter((a) => a.customerId === c.id).sort((a, b) => a.date.localeCompare(b.date));
+  return (
+    <div className="mf-fade-in">
+      <button onClick={() => go("customers")} className="mf-btn mf-btn-ghost" style={{ marginBottom: 14, padding: "6px 12px", fontSize: 12.5 }}><ChevronLeft size={14} /> Zurück zu Kunden</button>
+      <h1 className="mf-heading" style={{ fontSize: 22, fontWeight: 800, marginBottom: 4 }}>{c.name}</h1>
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", color: "var(--text-muted)", fontSize: 13.5, marginBottom: 22 }}>
+        {c.contact && <span>{c.contact}</span>}
+        {c.phone && <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Phone size={13} />{c.phone}</span>}
+        {c.email && <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Mail size={13} />{c.email}</span>}
+        {c.address && <span style={{ display: "flex", alignItems: "center", gap: 4 }}><MapPin size={13} />{c.address}</span>}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }} className="mf-dash-grid">
+        <div className="mf-card" style={{ padding: 18 }}>
+          <h3 className="mf-heading" style={{ fontSize: 15, fontWeight: 800, marginBottom: 12 }}>Projekte</h3>
+          {projects.length === 0 ? <div style={{ fontSize: 13, color: "var(--text-muted)" }}>Keine Projekte.</div> : projects.map((p) => (
+            <div key={p.id} onClick={() => go("projectDetail", { id: p.id })} style={{ padding: "8px 0", borderBottom: "1px solid var(--border)", cursor: "pointer", fontSize: 13.5, fontWeight: 600 }}>{p.name}</div>
+          ))}
+        </div>
+        <div className="mf-card" style={{ padding: 18 }}>
+          <h3 className="mf-heading" style={{ fontSize: 15, fontWeight: 800, marginBottom: 12 }}>Termine</h3>
+          {appts.length === 0 ? <div style={{ fontSize: 13, color: "var(--text-muted)" }}>Keine Termine.</div> : appts.map((a) => <AppointmentRow key={a.id} a={a} db={db} />)}
+        </div>
+      </div>
+      {c.notes && <div className="mf-card" style={{ padding: 18, marginTop: 18 }}><h3 className="mf-heading" style={{ fontSize: 15, fontWeight: 800, marginBottom: 8 }}>Notizen</h3><div style={{ fontSize: 13.5, color: "var(--text-muted)" }}>{c.notes}</div></div>}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/*  Absences                                                                */
+/* ---------------------------------------------------------------------- */
+
+const ABSENCE_META = {
+  urlaub: { label: "Urlaub", icon: "🏖" },
+  krank: { label: "Krank", icon: "🤒" },
+  homeoffice: { label: "Homeoffice", icon: "🏠" },
+  sonstiges: { label: "Sonstiges", icon: "📅" },
+};
+
+function AbsenceModal({ onClose, onSave }) {
+  const [type, setType] = useState("urlaub");
+  const [start, setStart] = useState(isoDay(new Date()));
+  const [end, setEnd] = useState(isoDay(new Date()));
+
+  function submit(e) {
+    e.preventDefault();
+    onSave({ id: uid("abs"), type, start, end, status: "offen" });
+  }
+  return (
+    <Modal title="Abwesenheit beantragen" onClose={onClose} width={400}>
+      <form onSubmit={submit}>
+        <label className="mf-label">Art</label>
+        <select className="mf-input" style={{ marginBottom: 12 }} value={type} onChange={(e) => setType(e.target.value)}>
+          {Object.entries(ABSENCE_META).map(([k, v]) => <option key={k} value={k}>{v.icon} {v.label}</option>)}
+        </select>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 18 }}>
+          <div><label className="mf-label">Von</label><input type="date" className="mf-input" value={start} onChange={(e) => setStart(e.target.value)} /></div>
+          <div><label className="mf-label">Bis</label><input type="date" className="mf-input" value={end} onChange={(e) => setEnd(e.target.value)} /></div>
+        </div>
+        <button className="mf-btn mf-btn-primary" style={{ width: "100%", justifyContent: "center" }} type="submit">Beantragen</button>
+      </form>
+    </Modal>
+  );
+}
+
+function AbsencesView({ db, me, updateDB, showToast }) {
+  const [showModal, setShowModal] = useState(false);
+  const list = me.role === "chef" ? db.absences : db.absences.filter((a) => a.employeeId === me.id);
+  const sorted = [...list].sort((a, b) => (a.status === "offen") ? -1 : 1);
+
+  function save(a) {
+    updateDB((prev) => ({
+      ...prev,
+      absences: [...prev.absences, { ...a, employeeId: me.id }],
+      notifications: [{ id: uid("n"), audience: "chef", text: `${me.name} hat ${ABSENCE_META[a.type].label} beantragt`, time: Date.now(), read: false }, ...prev.notifications],
+    }));
+    setShowModal(false);
+    showToast("Abwesenheit wurde beantragt.");
+  }
+
+  function decide(id, status) {
+    updateDB((prev) => {
+      const abs = prev.absences.find((a) => a.id === id);
+      const next = { ...prev, absences: prev.absences.map((a) => a.id === id ? { ...a, status } : a) };
+      if (abs) next.notifications = [{ id: uid("n"), audience: `user:${abs.employeeId}`, text: `Dein Antrag (${ABSENCE_META[abs.type].label}) wurde ${status === "genehmigt" ? "genehmigt" : "abgelehnt"}`, time: Date.now(), read: false }, ...next.notifications];
+      return next;
+    });
+    showToast(status === "genehmigt" ? "Antrag genehmigt." : "Antrag abgelehnt.");
+  }
+
+  return (
+    <div className="mf-fade-in">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
+        <h1 className="mf-heading" style={{ fontSize: 22, fontWeight: 800 }}>Abwesenheiten</h1>
+        {me.role !== "chef" && <button className="mf-btn mf-btn-primary" onClick={() => setShowModal(true)}><Plus size={15} /> Beantragen</button>}
+      </div>
+      <div className="mf-card" style={{ padding: 6 }}>
+        {sorted.length === 0 ? <EmptyState icon={ClipboardList} text="Keine Abwesenheiten" /> : sorted.map((a) => {
+          const meta = ABSENCE_META[a.type];
+          const emp = db.users.find((u) => u.id === a.employeeId);
+          const statusColor = a.status === "genehmigt" ? { c: "var(--green-500)", b: "var(--green-100)" } : a.status === "abgelehnt" ? { c: "var(--red-500)", b: "var(--red-100)" } : { c: "var(--yellow-600)", b: "var(--yellow-100)" };
+          return (
+            <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
+              <div style={{ fontSize: 20 }}>{meta.icon}</div>
+              <div style={{ flex: 1 }}>
+                {me.role === "chef" && <div style={{ fontWeight: 700, fontSize: 13.5 }}>{emp?.name}</div>}
+                <div style={{ fontSize: 13, fontWeight: 600 }}>{meta.label}</div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{fmtDateShort(a.start)} – {fmtDateShort(a.end)}</div>
+              </div>
+              <Badge color={statusColor.c} bg={statusColor.b}>{a.status === "offen" ? "Offen" : a.status === "genehmigt" ? "Genehmigt" : "Abgelehnt"}</Badge>
+              {me.role === "chef" && a.status === "offen" && (
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => decide(a.id, "genehmigt")} className="mf-btn" style={{ padding: "5px 10px", fontSize: 11.5, background: "var(--green-100)", color: "var(--green-500)" }}>Genehmigen</button>
+                  <button onClick={() => decide(a.id, "abgelehnt")} className="mf-btn" style={{ padding: "5px 10px", fontSize: 11.5, background: "var(--red-100)", color: "var(--red-500)" }}>Ablehnen</button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {showModal && <AbsenceModal onClose={() => setShowModal(false)} onSave={save} />}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/*  Materials                                                               */
+/* ---------------------------------------------------------------------- */
+
+function MaterialsView({ db, updateDB, showToast }) {
+  function adjust(id, delta) {
+    updateDB((prev) => ({ ...prev, materials: prev.materials.map((m) => m.id === id ? { ...m, stock: Math.max(0, m.stock + delta) } : m) }));
+  }
+  return (
+    <div className="mf-fade-in">
+      <h1 className="mf-heading" style={{ fontSize: 22, fontWeight: 800, marginBottom: 18 }}>Materialübersicht</h1>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 14 }}>
+        {db.materials.map((m) => {
+          const low = m.stock <= m.low;
+          return (
+            <div key={m.id} className="mf-card" style={{ padding: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                <span style={{ fontWeight: 700, fontSize: 14.5 }}>{m.name}</span>
+                {low && <AlertTriangle size={16} color="var(--yellow-600)" />}
+              </div>
+              <div className="mf-heading" style={{ fontSize: 24, fontWeight: 800, marginBottom: 6 }}>{m.stock} <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-muted)" }}>{m.unit}</span></div>
+              {low && <div style={{ fontSize: 12, color: "var(--yellow-600)", fontWeight: 600, marginBottom: 10 }}>⚠️ {m.name} wird knapp</div>}
+              <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                <button onClick={() => adjust(m.id, -5)} className="mf-btn mf-btn-ghost" style={{ padding: "5px 12px", fontSize: 12.5 }}>–5</button>
+                <button onClick={() => adjust(m.id, 5)} className="mf-btn mf-btn-ghost" style={{ padding: "5px 12px", fontSize: 12.5 }}>+5</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/*  Search                                                                  */
+/* ---------------------------------------------------------------------- */
+
+function GlobalSearch({ db, me, go }) {
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function onClick(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, []);
+
+  const results = useMemo(() => {
+    if (!q.trim()) return [];
+    const query = q.toLowerCase();
+    const out = [];
+    db.customers.forEach((c) => { if (c.name.toLowerCase().includes(query)) out.push({ type: "Kunde", label: c.name, action: () => go("customerDetail", { id: c.id }) }); });
+    db.projects.forEach((p) => { if (p.name.toLowerCase().includes(query)) out.push({ type: "Baustelle", label: p.name, action: () => go("projectDetail", { id: p.id }) }); });
+    if (me.role === "chef") db.users.forEach((u) => { if (u.role === "mitarbeiter" && u.name.toLowerCase().includes(query)) out.push({ type: "Mitarbeiter", label: u.name, action: () => go("teamMemberDetail", { id: u.id }) }); });
+    db.tasks.forEach((t) => { if (t.title.toLowerCase().includes(query) && (me.role === "chef" || t.assigneeId === me.id)) out.push({ type: "Aufgabe", label: t.title, action: () => go("tasks") }); });
+    db.appointments.forEach((a) => { if (a.title.toLowerCase().includes(query) && (me.role === "chef" || a.employeeIds.includes(me.id))) out.push({ type: "Termin", label: `${a.title} · ${fmtDateShort(a.date)}`, action: () => go("calendar") }); });
+    return out.slice(0, 8);
+  }, [q, db, me]);
+
+  return (
+    <div ref={ref} style={{ position: "relative", flex: 1, maxWidth: 380 }}>
+      <div style={{ position: "relative" }}>
+        <Search size={15} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }} />
+        <input className="mf-input" style={{ paddingLeft: 34 }} placeholder="Suche nach Kunden, Terminen, Aufgaben..." value={q}
+          onChange={(e) => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} />
+      </div>
+      {open && q.trim() && (
+        <div className="mf-card mf-fade-in" style={{ position: "absolute", top: "110%", left: 0, right: 0, padding: 6, zIndex: 60, maxHeight: 320, overflowY: "auto" }}>
+          {results.length === 0 ? <div style={{ padding: 14, fontSize: 13, color: "var(--text-muted)" }}>Keine Ergebnisse für „{q}“</div> :
+            results.map((r, i) => (
+              <div key={i} onClick={() => { r.action(); setOpen(false); setQ(""); }} style={{ display: "flex", justifyContent: "space-between", padding: "9px 12px", borderRadius: 8, cursor: "pointer" }}
+                onMouseEnter={(e) => e.currentTarget.style.background = "var(--surface-2)"} onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
+                <span style={{ fontSize: 13.5, fontWeight: 600 }}>{r.label}</span>
+                <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>{r.type}</span>
+              </div>
+            ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/*  Notifications                                                           */
+/* ---------------------------------------------------------------------- */
+
+function NotificationBell({ db, me, updateDB }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    function onClick(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, []);
+
+  const audience = me.role === "chef" ? "chef" : `user:${me.id}`;
+  const mine = db.notifications.filter((n) => n.audience === audience).sort((a, b) => b.time - a.time);
+  const unread = mine.filter((n) => !n.read).length;
+
+  function markAllRead() {
+    updateDB((prev) => ({ ...prev, notifications: prev.notifications.map((n) => n.audience === audience ? { ...n, read: true } : n) }));
+  }
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button onClick={() => { setOpen((o) => !o); if (!open) markAllRead(); }} className="mf-btn mf-btn-ghost" style={{ padding: 9, position: "relative" }}>
+        <Bell size={17} />
+        {unread > 0 && <span style={{ position: "absolute", top: 4, right: 5, width: 8, height: 8, borderRadius: "50%", background: "var(--yellow-500)", border: "2px solid var(--surface)" }} />}
+      </button>
+      {open && (
+        <div className="mf-card mf-fade-in" style={{ position: "absolute", right: 0, top: "115%", width: 300, padding: 8, zIndex: 60, maxHeight: 360, overflowY: "auto" }}>
+          <div style={{ fontWeight: 800, fontSize: 13.5, padding: "6px 8px 10px" }}>Benachrichtigungen</div>
+          {mine.length === 0 ? <div style={{ padding: 14, fontSize: 13, color: "var(--text-muted)" }}>Keine Benachrichtigungen.</div> :
+            mine.slice(0, 12).map((n) => (
+              <div key={n.id} style={{ padding: "9px 8px", borderBottom: "1px solid var(--border)", fontSize: 13 }}>
+                🔔 {n.text}
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{new Date(n.time).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</div>
+              </div>
+            ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/*  Shell (nav + layout)                                                    */
+/* ---------------------------------------------------------------------- */
+
+const EMPLOYEE_NAV = [
+  { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { key: "calendar", label: "Kalender", icon: CalendarDays },
+  { key: "tasks", label: "Aufgaben", icon: CheckSquare },
+  { key: "projects", label: "Meine Projekte", icon: Building2 },
+  { key: "customers", label: "Kunden", icon: Users },
+  { key: "absences", label: "Abwesenheiten", icon: ClipboardList },
+];
+const CHEF_EXTRA_NAV = [
+  { key: "team", label: "Team", icon: Users },
+  { key: "teamcalendar", label: "Teamkalender", icon: CalendarDays },
+  { key: "materials", label: "Material", icon: Package },
+];
+
+function Sidebar({ me, view, go, dark, setDark, onLogout }) {
+  const nav = me.role === "chef" ? [EMPLOYEE_NAV[0], EMPLOYEE_NAV[1], EMPLOYEE_NAV[2], { key: "projects", label: "Baustellen & Aufträge", icon: Building2 }, ...CHEF_EXTRA_NAV, EMPLOYEE_NAV[4], EMPLOYEE_NAV[5]] : EMPLOYEE_NAV;
+
+  return (
+    <div className="mf-sidebar" style={{ width: 240, flexShrink: 0, borderRight: "1px solid var(--border)", background: "var(--surface)", display: "flex", flexDirection: "column", padding: 18, position: "sticky", top: 0, height: "100vh" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 26, padding: "0 6px" }}>
+        <Logo size={32} />
+        <div className="mf-heading" style={{ fontWeight: 800, fontSize: 15, lineHeight: 1.2 }}>Malerwerk<br /><span style={{ fontWeight: 600, fontSize: 11.5, color: "var(--text-muted)" }}>Arbeitsmanager</span></div>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1, overflowY: "auto" }} className="mf-scroll">
+        {nav.map((item, i) => (
+          <div key={item.key + i} className={`mf-nav-item ${view === item.key ? "active" : ""}`} onClick={() => go(item.key)}>
+            <item.icon size={17} /> {item.label}
+          </div>
+        ))}
+      </div>
+
+      <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, display: "flex", flexDirection: "column", gap: 3 }}>
+        <div className="mf-nav-item" onClick={() => setDark((d) => !d)}>{dark ? <Sun size={17} /> : <Moon size={17} />} {dark ? "Heller Modus" : "Dunkler Modus"}</div>
+        <div className="mf-nav-item" onClick={onLogout}><LogOut size={17} /> Abmelden</div>
+      </div>
+    </div>
+  );
+}
+
+function BottomNav({ me, view, go }) {
+  const items = me.role === "chef"
+    ? [{ key: "dashboard", icon: LayoutDashboard }, { key: "calendar", icon: CalendarDays }, { key: "projects", icon: Building2 }, { key: "tasks", icon: CheckSquare }, { key: "team", icon: Users }]
+    : [{ key: "dashboard", icon: LayoutDashboard }, { key: "calendar", icon: CalendarDays }, { key: "tasks", icon: CheckSquare }, { key: "projects", icon: Building2 }, { key: "absences", icon: ClipboardList }];
+  return (
+    <div className="mf-bottomnav" style={{ display: "none", position: "fixed", bottom: 0, left: 0, right: 0, background: "var(--surface)", borderTop: "1px solid var(--border)", padding: "8px 10px", justifyContent: "space-around", zIndex: 50 }}>
+      {items.map((it) => (
+        <div key={it.key} onClick={() => go(it.key)} style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: 6, color: view === it.key ? "var(--blue-600)" : "var(--text-muted)", cursor: "pointer" }}>
+          <it.icon size={20} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Toast({ toasts }) {
+  return (
+    <div style={{ position: "fixed", bottom: 20, right: 20, display: "flex", flexDirection: "column", gap: 8, zIndex: 200 }}>
+      {toasts.map((t) => (
+        <div key={t.id} className="mf-pop" style={{ background: "var(--blue-900)", color: "#fff", padding: "11px 18px", borderRadius: 10, fontSize: 13.5, fontWeight: 600, boxShadow: "var(--shadow)", display: "flex", alignItems: "center", gap: 8 }}>
+          <Check size={15} color="var(--yellow-500)" /> {t.text}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/*  Root                                                                    */
+/* ---------------------------------------------------------------------- */
+
+function MalerfirmaApp() {
+  const [db, setDb] = useState(null);
+  const [session, setSession] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [view, setView] = useState("dashboard");
+  const [params, setParams] = useState({});
+  const [dark, setDark] = useState(false);
+  const [toasts, setToasts] = useState([]);
+
+  useEffect(() => {
+    (async () => {
+      const [d, s] = await Promise.all([loadDB(), loadSession()]);
+      setDb(d);
+      setSession(s);
+      setLoading(false);
+    })();
+
+    // Live-Sync: übernimmt Änderungen von anderen Geräten automatisch,
+    // sobald Firebase konfiguriert ist (siehe Storage-Shim oben im <head>).
+    if (window.__mfSubscribeDB) {
+      const unsubscribe = window.__mfSubscribeDB((remoteDb) => {
+        setDb(remoteDb);
+      });
+      return () => unsubscribe && unsubscribe();
+    }
+  }, []);
+
+  function updateDB(updater) {
+    setDb((prev) => {
+      const next = updater(prev);
+      persistDB(next);
+      return next;
+    });
+  }
+
+  function showToast(text) {
+    const id = uid("toast");
+    setToasts((t) => [...t, { id, text }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200);
+  }
+
+  function go(key, p = {}) { setView(key); setParams(p); }
+
+  function handleLogin(userId) {
+    const s = { userId };
+    setSession(s);
+    persistSession(s);
+    setView("dashboard");
+  }
+  function handleLogout() {
+    setSession(null);
+    persistSession(null);
+    setView("dashboard");
+  }
+  function handleRegister(user) {
+    updateDB((prev) => ({ ...prev, users: [...prev.users, user] }));
+    handleLogin(user.id);
+    showToast(`Willkommen, ${user.name.split(" ")[0]}!`);
+  }
+
+  if (loading || !db) {
+    return (
+      <div className="mf-root" style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
+        <GlobalStyle />
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+          <Logo size={40} />
+          <div style={{ fontSize: 13, color: "var(--text-muted)", fontWeight: 600 }}>Wird geladen …</div>
+        </div>
+      </div>
+    );
+  }
+
+  const me = session ? db.users.find((u) => u.id === session.userId && u.active) : null;
+
+  if (!me) {
+    return <LoginScreen db={db} onLogin={handleLogin} onRegister={handleRegister} />;
+  }
+
+  let content;
+  if (view === "dashboard") content = me.role === "chef" ? <ChefDashboard db={db} me={me} go={go} /> : <EmployeeDashboard db={db} me={me} go={go} openAppointment={() => go("calendar")} />;
+  else if (view === "calendar") content = <CalendarView db={db} me={me} updateDB={updateDB} showToast={showToast} />;
+  else if (view === "teamcalendar" && me.role === "chef") content = <TeamCalendarView db={db} />;
+  else if (view === "tasks") content = <TasksView db={db} me={me} updateDB={updateDB} showToast={showToast} />;
+  else if (view === "projects") content = <ProjectsView db={db} me={me} updateDB={updateDB} go={go} showToast={showToast} />;
+  else if (view === "projectDetail") content = <ProjectDetailView db={db} me={me} projectId={params.id} updateDB={updateDB} go={go} showToast={showToast} />;
+  else if (view === "team" && me.role === "chef") content = <TeamView db={db} updateDB={updateDB} go={go} showToast={showToast} />;
+  else if (view === "teamMemberDetail" && me.role === "chef") content = <TeamMemberDetailView db={db} memberId={params.id} go={go} />;
+  else if (view === "customers") content = <CustomersView db={db} me={me} updateDB={updateDB} go={go} showToast={showToast} />;
+  else if (view === "customerDetail") content = <CustomerDetailView db={db} customerId={params.id} go={go} />;
+  else if (view === "absences") content = <AbsencesView db={db} me={me} updateDB={updateDB} showToast={showToast} />;
+  else if (view === "materials" && me.role === "chef") content = <MaterialsView db={db} updateDB={updateDB} showToast={showToast} />;
+  else content = <EmptyState icon={AlertTriangle} text="Kein Zugriff" sub="Diese Ansicht ist für deine Rolle nicht verfügbar." />;
+
+  return (
+    <div className={`mf-root ${dark ? "dark" : ""}`} style={{ display: "flex" }}>
+      <GlobalStyle />
+      <style>{`@media (max-width: 860px) { .mf-dash-grid { grid-template-columns: 1fr !important; } }`}</style>
+      <Sidebar me={me} view={view} go={go} dark={dark} setDark={setDark} onLogout={handleLogout} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 24px", borderBottom: "1px solid var(--border)", background: "var(--surface)", position: "sticky", top: 0, zIndex: 40 }}>
+          <GlobalSearch db={db} me={me} go={go} />
+          <div style={{ flex: 1 }} />
+          <NotificationBell db={db} me={me} updateDB={updateDB} />
+          <div style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }} onClick={() => go("team")}>
+            <Avatar name={me.name} size={30} />
+            <div style={{ display: "none" }} className="mf-profile-name">
+              <div style={{ fontSize: 13, fontWeight: 700 }}>{me.name}</div>
+            </div>
+          </div>
+        </div>
+        <div className="mf-main" style={{ padding: 24, maxWidth: 1180 }}>
+          {content}
+        </div>
+      </div>
+      <BottomNav me={me} view={view} go={go} />
+      <Toast toasts={toasts} />
+    </div>
+  );
+}
+
+const root = createRoot(document.getElementById("root"));
+root.render(<MalerfirmaApp />);
+</script>
+</body>
+</html>

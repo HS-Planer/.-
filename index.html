@@ -3,116 +3,50 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Malerwerk Stuttgart – Arbeitsmanager</title>
-
-<!-- React, ReactDOM und lucide-react sind fest in app.bundle.js eingebaut
-     (kein Laden von unpkg.com/esm.sh mehr nötig, kein Live-Babel im
-     Browser mehr -> deutlich zuverlässigerer Start). -->
-
+<title>Heinrich Schmid – Team-Planer</title>
 <style>
-  html, body { margin: 0; padding: 0; }
-  #root { min-height: 100vh; }
-  #mf-loading { display:flex; align-items:center; justify-content:center; min-height:100vh; font-family: sans-serif; color:#66768E; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, sans-serif; background:#f4f6f9; color:#1c2b3a; }
+  #root { min-height:100vh; }
+  .center { min-height:100vh; display:flex; align-items:center; justify-content:center; padding:16px; }
+  .card { background:#fff; border-radius:14px; padding:28px; width:100%; max-width:380px; box-shadow:0 4px 18px rgba(0,0,0,.08); }
+  h1 { font-size:19px; margin:0 0 4px; color:#1c3a5e; }
+  .sub { font-size:13px; color:#66768E; margin-bottom:18px; }
+  label { font-size:13px; color:#44586e; display:block; margin:10px 0 4px; }
+  input, select { width:100%; padding:10px 12px; border:1px solid #dbe2ea; border-radius:8px; font-size:14px; }
+  button { cursor:pointer; border:none; border-radius:8px; font-weight:600; font-size:14px; }
+  .btn-primary { background:#1c3a5e; color:#fff; padding:11px; width:100%; margin-top:16px; }
+  .btn-secondary { background:#eef1f5; color:#1c3a5e; padding:9px 14px; }
+  .btn-danger { background:#fdeaea; color:#a33; padding:7px 10px; font-size:12px; }
+  .err { color:#a33; font-size:12.5px; margin-top:8px; }
+  .rolebtns { display:flex; gap:8px; margin-bottom:18px; }
+  .rolebtns button { flex:1; padding:9px; border-radius:8px; background:#eef1f5; color:#44586e; }
+  .rolebtns button.active { background:#1c3a5e; color:#fff; }
+  header.topbar { background:#1c3a5e; color:#fff; padding:14px 20px; display:flex; justify-content:space-between; align-items:center; }
+  header.topbar .who { font-size:13px; opacity:.85; }
+  main { max-width:760px; margin:0 auto; padding:18px; }
+  .section { background:#fff; border-radius:12px; padding:18px; margin-bottom:16px; box-shadow:0 2px 8px rgba(0,0,0,.05); }
+  .section h2 { font-size:15px; margin:0 0 12px; color:#1c3a5e; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; }
+  .row > * { flex:1; min-width:120px; }
+  .termin { border:1px solid #e6eaf0; border-radius:10px; padding:12px 14px; margin-bottom:10px; }
+  .termin .t-head { display:flex; justify-content:space-between; align-items:center; font-weight:600; font-size:14px; }
+  .termin .t-meta { font-size:12.5px; color:#66768E; margin-top:4px; }
+  .badge { font-size:11px; padding:2px 8px; border-radius:20px; font-weight:600; }
+  .badge.offen { background:#eaf1ff; color:#1c5ebf; }
+  .badge.anfrage { background:#fff4e0; color:#a3720a; }
+  .anfrage-box { margin-top:8px; font-size:12.5px; background:#fff8ea; border:1px solid #f0e0b3; border-radius:8px; padding:8px 10px; }
+  .link-btn { background:none; color:#1c5ebf; font-size:12.5px; padding:0; text-decoration:underline; }
+  .emp-chip { display:inline-flex; align-items:center; gap:6px; background:#eef1f5; border-radius:20px; padding:5px 10px 5px 12px; font-size:12.5px; margin:3px 4px 3px 0; }
+  .emp-chip button { background:none; color:#a33; font-size:12px; padding:0 2px; }
+  .empty { color:#8a97a6; font-size:13px; text-align:center; padding:14px; }
 </style>
 </head>
 <body>
-<div id="root"><div id="mf-loading">Wird geladen …</div></div>
-
-<!-- Diagnose-Wachhund: zeigt einen verständlichen Fehler an, falls die App
-     nach einigen Sekunden nicht gestartet ist (z.B. weil app.bundle.js
-     nicht gefunden wird, weil die Seite als lokale Datei ohne Server
-     geöffnet wurde, oder weil gstatic.com für Firebase blockiert wird). -->
-<script>
-  (function () {
-    var mfErrors = [];
-    // capture:true ist nötig, damit auch Lade-Fehler von <script>-Tags erfasst werden.
-    window.addEventListener(
-      "error",
-      function (e) {
-        var src = e.target && (e.target.src || e.target.href);
-        if (src) {
-          mfErrors.push("Skript konnte nicht geladen werden: " + src);
-        } else if (e.message) {
-          mfErrors.push((e.filename ? e.filename.split("/").pop() + ": " : "") + e.message);
-        }
-      },
-      true
-    );
-    window.addEventListener("unhandledrejection", function (e) {
-      var r = e.reason;
-      var msg = (r && (r.message || (r.toString && r.toString()))) || String(r);
-      mfErrors.push("Promise-Fehler: " + msg);
-    });
-
-    function probe(name, url) {
-      return fetch(url, { mode: "no-cors", cache: "no-store" })
-        .then(function () { return null; })
-        .catch(function () { return name + " (" + url + ") ist nicht erreichbar – wird vermutlich blockiert."; });
-    }
-
-    setTimeout(function () {
-      var stillLoading = document.getElementById("mf-loading");
-      if (!stillLoading) return; // App hat erfolgreich gestartet
-
-      Promise.all([
-        probe("gstatic.com", "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js"),
-      ]).then(function (probeResults) {
-        var allMsgs = probeResults.filter(Boolean).concat(mfErrors);
-        var details = allMsgs.length
-          ? '<div style="margin-top:14px;text-align:left;background:#fff3f3;border:1px solid #f3b7b7;border-radius:8px;padding:10px 14px;font-size:12.5px;color:#a33;max-width:520px;white-space:pre-wrap;">' +
-            allMsgs.join("\n").replace(/</g, "&lt;") +
-            "</div>"
-          : '<div style="margin-top:14px;font-size:12.5px;color:#a33;">Keine Netzwerkfehler erkannt – möglicherweise ein Skriptfehler in der App selbst. Bitte F12 → Konsole prüfen.</div>';
-        stillLoading.outerHTML =
-          '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;">' +
-          '<div style="text-align:center;max-width:520px;padding:24px;">' +
-          '<div style="font-size:16px;font-weight:700;color:#333;margin-bottom:8px;">Die App konnte nicht geladen werden</div>' +
-          '<div style="font-size:13.5px;color:#66768E;line-height:1.6;">Häufigster Grund: Die Datei wurde direkt per Doppelklick geöffnet (Adresse beginnt mit <b>file://</b>). Browser blockieren dann aus Sicherheitsgründen das Nachladen von <b>app.bundle.js</b>. Öffne die Seite stattdessen über einen lokalen Server oder ein echtes Hosting (http:// bzw. https://). Alternativ kann ein Werbe-/Skriptblocker oder das Netzwerk den Zugriff auf <b>gstatic.com</b> (Firebase) verhindern.</div>' +
-          details +
-          '<button onclick="location.reload()" style="margin-top:16px;padding:9px 18px;border-radius:8px;border:none;background:#1c3a5e;color:#fff;font-weight:700;cursor:pointer;">Neu laden</button>' +
-          "</div></div>";
-      });
-    }, 9000);
-  })();
-</script>
+<div id="root"><div class="center">Wird geladen …</div></div>
 
 <script type="module">
-  /* ======================================================================
-     FIREBASE-KONFIGURATION
-     ----------------------------------------------------------------------
-     Trage hier die Konfigurationswerte deines eigenen Firebase-Projekts
-     ein. Du findest sie in der Firebase-Console unter:
-     Projekteinstellungen -> "Meine Apps" -> Web-App -> SDK-Konfiguration.
-
-     Kurzanleitung:
-     1. https://console.firebase.google.com öffnen, neues Projekt anlegen
-        (kostenloser "Spark"-Plan reicht).
-     2. Im Projekt: "Firestore Database" -> "Datenbank erstellen"
-        -> Testmodus wählen (oder Regeln s.u. verwenden).
-     3. Unter "Projektübersicht" -> Zahnrad -> "Projekteinstellungen"
-        -> "Meine Apps" -> "</> Web" -> App registrieren.
-     4. Die angezeigten Werte unten eintragen.
-
-     Sicherheitsregeln (Firestore -> Regeln), da diese App ohne Login-
-     Prüfung auf Firebase-Ebene arbeitet (die App-eigene Anmeldung bleibt
-     wie gehabt bestehen, sichert aber nicht die Datenbank selbst ab):
-
-       rules_version = '2';
-       service cloud.firestore {
-         match /databases/{database}/documents {
-           match /malerfirma_shared/{docId} {
-             allow read, write: if true; // Testmodus – siehe Hinweis unten
-           }
-         }
-       }
-
-     Hinweis: "allow read, write: if true" macht die Daten für jeden mit
-     der Projekt-URL lesbar/schreibbar. Für eine echte Firmen-App sollte
-     hier eine Firebase-Authentifizierung ergänzt und die Regel auf
-     angemeldete Nutzer eingeschränkt werden (allow read, write: if
-     request.auth != null). Für eine einfache interne Team-Lösung reicht
-     der Testmodus oft aus, solange die URL nicht öffentlich geteilt wird.
-     ====================================================================== */
+  /* ---- Firebase / Speicher-Backend (geräteübergreifend synchron) ---- */
   const firebaseConfig = {
     apiKey: "AIzaSyAUOLTCYtr7fQc4kP3j-t6lsgAK4BIEgw8",
     authDomain: "hs-planer-104d7.firebaseapp.com",
@@ -120,97 +54,251 @@
     storageBucket: "hs-planer-104d7.firebasestorage.app",
     messagingSenderId: "921699904238",
     appId: "1:921699904238:web:a05c701a4b6e1c3d7fe1ff",
-    measurementId: "G-XDHZE35MPB",
   };
+  function localFallback() {
+    window.storage = {
+      async get(key, shared) { const raw = localStorage.getItem("mf_"+(shared?"s_":"p_")+key); return raw===null?null:{key,value:raw,shared:!!shared}; },
+      async set(key, value, shared) { localStorage.setItem("mf_"+(shared?"s_":"p_")+key, value); return {key,value,shared:!!shared}; },
+    };
+  }
+  try {
+    const { initializeApp } = await import("https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js");
+    const { getFirestore, doc, getDoc, setDoc } = await import("https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js");
+    const fbApp = initializeApp(firebaseConfig);
+    const fs = getFirestore(fbApp);
+    window.storage = {
+      async get(key, shared) {
+        if (!shared) { const raw = localStorage.getItem("mf_p_"+key); return raw===null?null:{key,value:raw,shared:false}; }
+        const snap = await getDoc(doc(fs, "malerfirma_shared", key));
+        return snap.exists() ? {key, value:snap.data().value, shared:true} : null;
+      },
+      async set(key, value, shared) {
+        if (!shared) { localStorage.setItem("mf_p_"+key, value); return {key,value,shared:false}; }
+        await setDoc(doc(fs, "malerfirma_shared", key), {value, updatedAt: Date.now()});
+        return {key,value,shared:true};
+      },
+    };
+  } catch (e) { console.warn("Firebase nicht verfügbar, nutze lokalen Speicher:", e); localFallback(); }
 
-  const FIREBASE_CONFIGURED = firebaseConfig.apiKey && !firebaseConfig.apiKey.startsWith("DEIN_");
+  /* ---------------------------- App-Logik ---------------------------- */
+  const root = document.getElementById("root");
+  const uid = () => Math.random().toString(36).slice(2,9);
+  const todayStr = () => new Date().toISOString().slice(0,10);
 
-  function fullKeyPrivate(key) {
-    return "malerfirma_private_" + key;
+  async function loadData() {
+    const r = await window.storage.get("mf_data", true);
+    if (r) { try { return JSON.parse(r.value); } catch(e) {} }
+    return { chefPassword: null, employees: [], termine: [], anfragen: [] };
+  }
+  async function saveData(d) { await window.storage.set("mf_data", JSON.stringify(d), true); }
+
+  function getSession() {
+    try { return JSON.parse(localStorage.getItem("mf_session") || "null"); } catch(e) { return null; }
+  }
+  function setSession(s) { s ? localStorage.setItem("mf_session", JSON.stringify(s)) : localStorage.removeItem("mf_session"); }
+
+  let DATA = await loadData();
+  let SESSION = getSession();
+
+  function esc(s) { return (s||"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+  async function render() {
+    DATA = await loadData();
+    if (!SESSION) return renderLogin();
+    if (SESSION.role === "chef") return renderChef();
+    return renderMitarbeiter();
   }
 
-  if (!FIREBASE_CONFIGURED) {
-    // Kein Firebase eingerichtet -> Fallback auf localStorage (nur dieses Gerät).
-    console.warn("Firebase ist nicht konfiguriert – Daten werden nur lokal in diesem Browser gespeichert. Siehe Kommentar im <head> der Datei.");
-    installLocalStorageFallback();
-  } else {
-    try {
-      const { initializeApp } = await import("https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js");
-      const { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot } =
-        await import("https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js");
+  /* ---- Login ---- */
+  function renderLogin() {
+    let mode = "mitarbeiter";
+    root.innerHTML = `
+      <div class="center"><div class="card">
+        <h1>Heinrich Schmid</h1>
+        <div class="sub">Arbeitsmanager – Anmeldung</div>
+        <div class="rolebtns">
+          <button id="mMit" class="active">Mitarbeiter</button>
+          <button id="mChef">Chef</button>
+        </div>
+        <div id="loginFields"></div>
+        <div id="loginErr" class="err"></div>
+      </div></div>`;
+    const fields = document.getElementById("loginFields");
+    function drawFields() {
+      if (mode === "mitarbeiter") {
+        fields.innerHTML = `
+          <label>Name</label>
+          <select id="empSel">${DATA.employees.length ? DATA.employees.map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join("") : `<option disabled selected>Noch keine Mitarbeiter angelegt</option>`}</select>
+          <label>Passwort</label>
+          <input type="password" id="empPw" />
+          <button class="btn-primary" id="loginBtn">Anmelden</button>`;
+      } else {
+        fields.innerHTML = `
+          <label>Passwort</label>
+          <input type="password" id="chefPw" />
+          <button class="btn-primary" id="loginBtn">${DATA.chefPassword ? "Anmelden" : "Chef-Passwort festlegen"}</button>`;
+      }
+      document.getElementById("loginBtn").onclick = doLogin;
+    }
+    document.getElementById("mMit").onclick = () => { mode="mitarbeiter"; document.getElementById("mMit").classList.add("active"); document.getElementById("mChef").classList.remove("active"); drawFields(); };
+    document.getElementById("mChef").onclick = () => { mode="chef"; document.getElementById("mChef").classList.add("active"); document.getElementById("mMit").classList.remove("active"); drawFields(); };
+    drawFields();
 
-      const fbApp = initializeApp(firebaseConfig);
-      const fs = getFirestore(fbApp);
-      const COLLECTION = "malerfirma_shared";
-
-      window.storage = {
-        async get(key, shared) {
-          if (!shared) {
-            const raw = localStorage.getItem(fullKeyPrivate(key));
-            return raw === null ? null : { key, value: raw, shared: false };
-          }
-          const snap = await getDoc(doc(fs, COLLECTION, key));
-          if (!snap.exists()) return null;
-          return { key, value: snap.data().value, shared: true };
-        },
-        async set(key, value, shared) {
-          if (!shared) {
-            localStorage.setItem(fullKeyPrivate(key), value);
-            return { key, value, shared: false };
-          }
-          await setDoc(doc(fs, COLLECTION, key), { value, updatedAt: Date.now() });
-          return { key, value, shared: true };
-        },
-        async delete(key, shared) {
-          if (!shared) {
-            localStorage.removeItem(fullKeyPrivate(key));
-            return { key, deleted: true, shared: false };
-          }
-          await deleteDoc(doc(fs, COLLECTION, key));
-          return { key, deleted: true, shared: true };
-        },
-        async list() { return { keys: [] }; },
-      };
-
-      // Live-Sync: liefert Änderungen von anderen Geräten in Echtzeit.
-      window.__mfSubscribeDB = function (callback) {
-        return onSnapshot(doc(fs, COLLECTION, "db"), (snap) => {
-          if (snap.exists()) {
-            try { callback(JSON.parse(snap.data().value)); } catch (e) {}
-          }
-        });
-      };
-    } catch (err) {
-      // Firebase konnte nicht geladen/initialisiert werden (z.B. Netzwerk,
-      // Blocker, falsche Config) -> App bleibt trotzdem nutzbar, nur ohne
-      // geräteübergreifende Synchronisierung.
-      console.error("Firebase konnte nicht geladen werden, verwende lokalen Speicher als Fallback:", err);
-      installLocalStorageFallback();
+    async function doLogin() {
+      const errEl = document.getElementById("loginErr");
+      errEl.textContent = "";
+      if (mode === "chef") {
+        const pw = document.getElementById("chefPw").value;
+        if (!pw) { errEl.textContent = "Bitte Passwort eingeben."; return; }
+        if (!DATA.chefPassword) {
+          DATA.chefPassword = pw; await saveData(DATA);
+          SESSION = { role:"chef" }; setSession(SESSION); return render();
+        }
+        if (pw !== DATA.chefPassword) { errEl.textContent = "Falsches Passwort."; return; }
+        SESSION = { role:"chef" }; setSession(SESSION); return render();
+      } else {
+        const sel = document.getElementById("empSel");
+        const pw = document.getElementById("empPw").value;
+        const emp = DATA.employees.find(e => e.id === sel.value);
+        if (!emp) { errEl.textContent = "Kein Mitarbeiter ausgewählt."; return; }
+        if (pw !== emp.password) { errEl.textContent = "Falsches Passwort."; return; }
+        SESSION = { role:"mitarbeiter", id: emp.id }; setSession(SESSION); return render();
+      }
     }
   }
 
-  function installLocalStorageFallback() {
-    window.storage = {
-      async get(key, shared) {
-        const raw = localStorage.getItem("malerfirma_" + (shared ? "shared_" : "private_") + key);
-        if (raw === null) return null;
-        return { key, value: raw, shared: !!shared };
-      },
-      async set(key, value, shared) {
-        localStorage.setItem("malerfirma_" + (shared ? "shared_" : "private_") + key, value);
-        return { key, value, shared: !!shared };
-      },
-      async delete(key, shared) {
-        localStorage.removeItem("malerfirma_" + (shared ? "shared_" : "private_") + key);
-        return { key, deleted: true, shared: !!shared };
-      },
-      async list() { return { keys: [] }; },
-    };
+  function topbar(name) {
+    return `<header class="topbar"><div><strong>Heinrich Schmid</strong> <span class="who">– ${esc(name)}</span></div>
+      <button class="btn-secondary" id="logoutBtn">Abmelden</button></header>`;
   }
-</script>
+  function bindLogout() { document.getElementById("logoutBtn").onclick = () => { SESSION=null; setSession(null); render(); }; }
 
-<!-- App-Code (React, ReactDOM, lucide-react und dein UI-Code) als eine
-     lokale, vorkompilierte Datei -- kein CDN, kein Live-Babel im Browser. -->
-<script src="app.bundle.js" defer></script>
+  /* ---- Chef-Ansicht ---- */
+  function renderChef() {
+    const openAnfragen = DATA.anfragen.filter(a => !a.erledigt);
+    root.innerHTML = `
+      ${topbar("Chef")}
+      <main>
+        <div class="section">
+          <h2>Mitarbeiter</h2>
+          <div id="empList">${DATA.employees.length ? DATA.employees.map(e=>`<span class="emp-chip">${esc(e.name)} <button data-del="${e.id}">✕</button></span>`).join("") : `<div class="empty">Noch keine Mitarbeiter.</div>`}</div>
+          <div class="row" style="margin-top:12px;">
+            <input id="newEmpName" placeholder="Name" />
+            <input id="newEmpPw" placeholder="Passwort" />
+            <button class="btn-secondary" id="addEmpBtn">Anlegen</button>
+          </div>
+        </div>
+
+        <div class="section">
+          <h2>Termin anlegen</h2>
+          <div class="row">
+            <select id="tEmp">${DATA.employees.map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join("") || `<option disabled>Erst Mitarbeiter anlegen</option>`}</select>
+            <input id="tDate" type="date" value="${todayStr()}" />
+            <input id="tTime" type="time" />
+          </div>
+          <div class="row" style="margin-top:8px;">
+            <input id="tTitle" placeholder="Titel / Baustelle" />
+            <input id="tOrt" placeholder="Ort" />
+          </div>
+          <input id="tNotiz" placeholder="Notiz / Anweisung" style="margin-top:8px;" />
+          <button class="btn-primary" id="addTerminBtn">Termin speichern</button>
+        </div>
+
+        <div class="section">
+          <h2>Anfragen von Mitarbeitern ${openAnfragen.length ? `<span class="badge anfrage">${openAnfragen.length} offen</span>`:""}</h2>
+          ${DATA.anfragen.length ? DATA.anfragen.slice().reverse().map(a => {
+            const t = DATA.termine.find(x=>x.id===a.termineId);
+            const emp = DATA.employees.find(e=>e.id===a.employeeId);
+            return `<div class="anfrage-box">
+              <strong>${esc(emp?emp.name:"?")}</strong> zu "${esc(t?t.title:"gelöschter Termin")}": ${esc(a.text)}
+              ${a.erledigt ? `<span class="badge offen" style="margin-left:6px;">erledigt</span>` : `<button class="link-btn" style="margin-left:8px;" data-doneReq="${a.id}">als erledigt markieren</button>`}
+            </div>`;
+          }).join("") : `<div class="empty">Keine Anfragen.</div>`}
+        </div>
+
+        <div class="section">
+          <h2>Alle Termine</h2>
+          ${DATA.termine.length ? DATA.termine.slice().reverse().map(t => {
+            const emp = DATA.employees.find(e=>e.id===t.employeeId);
+            return `<div class="termin">
+              <div class="t-head"><span>${esc(t.title)}</span><button class="btn-danger" data-delT="${t.id}">Löschen</button></div>
+              <div class="t-meta">${esc(emp?emp.name:"?")} · ${esc(t.date)} ${esc(t.time||"")} ${t.ort?`· ${esc(t.ort)}`:""}</div>
+              ${t.notiz?`<div class="t-meta">${esc(t.notiz)}</div>`:""}
+            </div>`;
+          }).join("") : `<div class="empty">Noch keine Termine.</div>`}
+        </div>
+      </main>`;
+    bindLogout();
+    document.getElementById("addEmpBtn").onclick = async () => {
+      const name = document.getElementById("newEmpName").value.trim();
+      const pw = document.getElementById("newEmpPw").value.trim();
+      if (!name || !pw) return;
+      DATA.employees.push({ id: uid(), name, password: pw });
+      await saveData(DATA); render();
+    };
+    root.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
+      if (!confirm("Mitarbeiter wirklich entfernen?")) return;
+      DATA.employees = DATA.employees.filter(e => e.id !== b.dataset.del);
+      await saveData(DATA); render();
+    });
+    const addTerminBtn = document.getElementById("addTerminBtn");
+    if (addTerminBtn) addTerminBtn.onclick = async () => {
+      const employeeId = document.getElementById("tEmp").value;
+      const title = document.getElementById("tTitle").value.trim();
+      const date = document.getElementById("tDate").value;
+      if (!employeeId || !title || !date) return;
+      DATA.termine.push({
+        id: uid(), employeeId, title, date,
+        time: document.getElementById("tTime").value,
+        ort: document.getElementById("tOrt").value.trim(),
+        notiz: document.getElementById("tNotiz").value.trim(),
+      });
+      await saveData(DATA); render();
+    };
+    root.querySelectorAll("[data-delT]").forEach(b => b.onclick = async () => {
+      DATA.termine = DATA.termine.filter(t => t.id !== b.dataset.delT);
+      DATA.anfragen = DATA.anfragen.filter(a => a.termineId !== b.dataset.delT);
+      await saveData(DATA); render();
+    });
+    root.querySelectorAll("[data-doneReq]").forEach(b => b.onclick = async () => {
+      const a = DATA.anfragen.find(x => x.id === b.dataset.doneReq);
+      if (a) a.erledigt = true;
+      await saveData(DATA); render();
+    });
+  }
+
+  /* ---- Mitarbeiter-Ansicht ---- */
+  function renderMitarbeiter() {
+    const emp = DATA.employees.find(e => e.id === SESSION.id);
+    if (!emp) { SESSION = null; setSession(null); return renderLogin(); }
+    const meine = DATA.termine.filter(t => t.employeeId === emp.id).sort((a,b)=>a.date.localeCompare(b.date));
+    root.innerHTML = `
+      ${topbar(emp.name)}
+      <main>
+        <div class="section">
+          <h2>Meine Termine</h2>
+          ${meine.length ? meine.map(t => {
+            const meineAnfragen = DATA.anfragen.filter(a => a.termineId === t.id);
+            return `<div class="termin">
+              <div class="t-head"><span>${esc(t.title)}</span></div>
+              <div class="t-meta">${esc(t.date)} ${esc(t.time||"")} ${t.ort?`· ${esc(t.ort)}`:""}</div>
+              ${t.notiz?`<div class="t-meta">Anweisung: ${esc(t.notiz)}</div>`:""}
+              ${meineAnfragen.map(a=>`<div class="anfrage-box">Deine Anfrage: ${esc(a.text)} ${a.erledigt?'<span class="badge offen">erledigt</span>':'<span class="badge anfrage">offen</span>'}</div>`).join("")}
+              <button class="link-btn" style="margin-top:6px;" data-req="${t.id}">Anfrage stellen (z.B. kann nicht)</button>
+            </div>`;
+          }).join("") : `<div class="empty">Keine Termine geplant.</div>`}
+        </div>
+      </main>`;
+    bindLogout();
+    root.querySelectorAll("[data-req]").forEach(b => b.onclick = async () => {
+      const text = prompt("Deine Anfrage / Nachricht zu diesem Termin:");
+      if (!text) return;
+      DATA.anfragen.push({ id: uid(), termineId: b.dataset.req, employeeId: emp.id, text, erledigt:false });
+      await saveData(DATA); render();
+    });
+  }
+
+  render();
+</script>
 </body>
 </html>

@@ -5,41 +5,62 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Heinrich Schmid – Team-Planer</title>
 <style>
+  :root { --blue:#1d4ed8; --blue-dk:#12306b; --yellow:#f5c518; --ink:#111418; --paper:#ffffff; --bg:#f2f4f7; --grey:#66768E; }
   * { box-sizing: border-box; }
-  body { margin:0; font-family: system-ui, sans-serif; background:#f4f6f9; color:#1c2b3a; }
+  body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--ink); }
   #root { min-height:100vh; }
   .center { min-height:100vh; display:flex; align-items:center; justify-content:center; padding:16px; }
-  .card { background:#fff; border-radius:14px; padding:28px; width:100%; max-width:380px; box-shadow:0 4px 18px rgba(0,0,0,.08); }
-  h1 { font-size:19px; margin:0 0 4px; color:#1c3a5e; }
-  .sub { font-size:13px; color:#66768E; margin-bottom:18px; }
+  .card { background:var(--paper); border-radius:16px; padding:28px; width:100%; max-width:380px; box-shadow:0 10px 30px rgba(17,20,24,.12); border-top:5px solid var(--yellow); }
+  h1 { font-size:20px; margin:0 0 4px; color:var(--blue-dk); }
+  .sub { font-size:13px; color:var(--grey); margin-bottom:18px; }
   label { font-size:13px; color:#44586e; display:block; margin:10px 0 4px; }
-  input, select { width:100%; padding:10px 12px; border:1px solid #dbe2ea; border-radius:8px; font-size:14px; }
-  button { cursor:pointer; border:none; border-radius:8px; font-weight:600; font-size:14px; }
-  .btn-primary { background:#1c3a5e; color:#fff; padding:11px; width:100%; margin-top:16px; }
-  .btn-secondary { background:#eef1f5; color:#1c3a5e; padding:9px 14px; }
-  .btn-danger { background:#fdeaea; color:#a33; padding:7px 10px; font-size:12px; }
-  .err { color:#a33; font-size:12.5px; margin-top:8px; }
+  input, select { width:100%; padding:10px 12px; border:1.5px solid #dbe2ea; border-radius:8px; font-size:14px; transition:border-color .15s; }
+  input:focus, select:focus { outline:none; border-color:var(--blue); }
+  button { cursor:pointer; border:none; border-radius:8px; font-weight:600; font-size:14px; transition:transform .1s, opacity .15s; }
+  button:hover { opacity:.9; }
+  button:active { transform:scale(.97); }
+  .btn-primary { background:var(--blue); color:#fff; padding:11px; width:100%; margin-top:16px; }
+  .btn-secondary { background:var(--ink); color:#fff; padding:9px 14px; }
+  .btn-danger { background:#111; color:#fff; padding:7px 10px; font-size:12px; opacity:.55; }
+  .btn-danger:hover { opacity:1; background:#b91c1c; }
+  .err { color:#b91c1c; font-size:12.5px; margin-top:8px; }
   .rolebtns { display:flex; gap:8px; margin-bottom:18px; }
   .rolebtns button { flex:1; padding:9px; border-radius:8px; background:#eef1f5; color:#44586e; }
-  .rolebtns button.active { background:#1c3a5e; color:#fff; }
-  header.topbar { background:#1c3a5e; color:#fff; padding:14px 20px; display:flex; justify-content:space-between; align-items:center; }
+  .rolebtns button.active { background:var(--blue-dk); color:#fff; }
+  header.topbar { background:linear-gradient(90deg,var(--blue-dk),var(--blue)); color:#fff; padding:16px 22px; display:flex; justify-content:space-between; align-items:center; border-bottom:4px solid var(--yellow); }
+  header.topbar strong { font-size:16px; }
   header.topbar .who { font-size:13px; opacity:.85; }
-  main { max-width:760px; margin:0 auto; padding:18px; }
-  .section { background:#fff; border-radius:12px; padding:18px; margin-bottom:16px; box-shadow:0 2px 8px rgba(0,0,0,.05); }
-  .section h2 { font-size:15px; margin:0 0 12px; color:#1c3a5e; }
+  main { max-width:780px; margin:0 auto; padding:20px 16px 60px; }
+  .section { background:var(--paper); border-radius:14px; padding:18px; margin-bottom:16px; box-shadow:0 2px 10px rgba(17,20,24,.06); }
+  .section h2 { font-size:15px; margin:0 0 12px; color:var(--blue-dk); display:flex; align-items:center; gap:6px; }
   .row { display:flex; gap:8px; flex-wrap:wrap; }
   .row > * { flex:1; min-width:120px; }
-  .termin { border:1px solid #e6eaf0; border-radius:10px; padding:12px 14px; margin-bottom:10px; }
-  .termin .t-head { display:flex; justify-content:space-between; align-items:center; font-weight:600; font-size:14px; }
-  .termin .t-meta { font-size:12.5px; color:#66768E; margin-top:4px; }
-  .badge { font-size:11px; padding:2px 8px; border-radius:20px; font-weight:600; }
-  .badge.offen { background:#eaf1ff; color:#1c5ebf; }
-  .badge.anfrage { background:#fff4e0; color:#a3720a; }
-  .anfrage-box { margin-top:8px; font-size:12.5px; background:#fff8ea; border:1px solid #f0e0b3; border-radius:8px; padding:8px 10px; }
-  .link-btn { background:none; color:#1c5ebf; font-size:12.5px; padding:0; text-decoration:underline; }
-  .emp-chip { display:inline-flex; align-items:center; gap:6px; background:#eef1f5; border-radius:20px; padding:5px 10px 5px 12px; font-size:12.5px; margin:3px 4px 3px 0; }
-  .emp-chip button { background:none; color:#a33; font-size:12px; padding:0 2px; }
+  .termin { border:1px solid #e6eaf0; border-left:4px solid var(--blue); border-radius:10px; padding:12px 14px; margin-bottom:10px; transition:box-shadow .15s; }
+  .termin:hover { box-shadow:0 3px 10px rgba(17,20,24,.08); }
+  .termin.past { opacity:.55; border-left-color:#cfd6e0; }
+  .termin .t-head { display:flex; justify-content:space-between; align-items:center; font-weight:700; font-size:14px; }
+  .termin .t-meta { font-size:12.5px; color:var(--grey); margin-top:4px; }
+  .badge { font-size:11px; padding:2px 9px; border-radius:20px; font-weight:700; }
+  .badge.offen { background:#e8f0ff; color:var(--blue); }
+  .badge.anfrage { background:#fff6d8; color:#8a6600; }
+  .anfrage-box { margin-top:8px; font-size:12.5px; background:#fffaea; border:1px solid var(--yellow); border-radius:8px; padding:8px 10px; }
+  .link-btn { background:none; color:var(--blue); font-size:12.5px; padding:0; text-decoration:underline; }
+  .emp-chip { display:inline-flex; align-items:center; gap:6px; background:var(--ink); color:#fff; border-radius:20px; padding:5px 10px 5px 12px; font-size:12.5px; margin:3px 4px 3px 0; }
+  .emp-chip button { background:none; color:var(--yellow); font-size:13px; padding:0 2px; }
   .empty { color:#8a97a6; font-size:13px; text-align:center; padding:14px; }
+  /* Kalender */
+  .cal-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+  .cal-head button { background:#eef1f5; color:var(--blue-dk); padding:5px 12px; border-radius:8px; }
+  .cal-head .lbl { font-weight:700; color:var(--blue-dk); text-transform:capitalize; }
+  .cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
+  .cal-dow { font-size:10.5px; color:var(--grey); text-align:center; font-weight:700; padding-bottom:2px; }
+  .cal-day { position:relative; aspect-ratio:1; display:flex; align-items:center; justify-content:center; border-radius:8px; font-size:12.5px; background:#f6f8fb; cursor:default; }
+  .cal-day.pad { background:transparent; }
+  .cal-day.today { border:1.5px solid var(--blue); font-weight:700; }
+  .cal-day.has { background:var(--blue); color:#fff; font-weight:700; cursor:pointer; }
+  .cal-day.has.sel { background:var(--yellow); color:var(--ink); }
+  .cal-day .dot { position:absolute; bottom:3px; width:4px; height:4px; border-radius:50%; background:var(--yellow); }
+  .cal-daylist { margin-top:14px; }
 </style>
 </head>
 <body>
@@ -84,6 +105,8 @@
   const root = document.getElementById("root");
   const uid = () => Math.random().toString(36).slice(2,9);
   const todayStr = () => new Date().toISOString().slice(0,10);
+  const DOW = ["Mo","Di","Mi","Do","Fr","Sa","So"];
+  const MONTHS = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
 
   async function loadData() {
     const r = await window.storage.get("mf_data", true);
@@ -99,6 +122,8 @@
 
   let DATA = await loadData();
   let SESSION = getSession();
+  let calCursor = todayStr().slice(0,7); // "YYYY-MM" für Mitarbeiter-Kalender
+  let calSelDay = todayStr();
 
   function esc(s) { return (s||"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
@@ -114,8 +139,8 @@
     let mode = "mitarbeiter";
     root.innerHTML = `
       <div class="center"><div class="card">
-        <h1>Heinrich Schmid</h1>
-        <div class="sub">Arbeitsmanager – Anmeldung</div>
+        <h1>🎨 Heinrich Schmid</h1>
+        <div class="sub">Team-Planer – Anmeldung</div>
         <div class="rolebtns">
           <button id="mMit" class="active">Mitarbeiter</button>
           <button id="mChef">Chef</button>
@@ -168,7 +193,7 @@
   }
 
   function topbar(name) {
-    return `<header class="topbar"><div><strong>Heinrich Schmid</strong> <span class="who">– ${esc(name)}</span></div>
+    return `<header class="topbar"><div><strong>🎨 Heinrich Schmid</strong> <span class="who">– ${esc(name)}</span></div>
       <button class="btn-secondary" id="logoutBtn">Abmelden</button></header>`;
   }
   function bindLogout() { document.getElementById("logoutBtn").onclick = () => { SESSION=null; setSession(null); render(); }; }
@@ -180,7 +205,7 @@
       ${topbar("Chef")}
       <main>
         <div class="section">
-          <h2>Mitarbeiter</h2>
+          <h2>👷 Mitarbeiter</h2>
           <div id="empList">${DATA.employees.length ? DATA.employees.map(e=>`<span class="emp-chip">${esc(e.name)} <button data-del="${e.id}">✕</button></span>`).join("") : `<div class="empty">Noch keine Mitarbeiter.</div>`}</div>
           <div class="row" style="margin-top:12px;">
             <input id="newEmpName" placeholder="Name" />
@@ -190,7 +215,7 @@
         </div>
 
         <div class="section">
-          <h2>Termin anlegen</h2>
+          <h2>📅 Termin anlegen</h2>
           <div class="row">
             <select id="tEmp">${DATA.employees.map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join("") || `<option disabled>Erst Mitarbeiter anlegen</option>`}</select>
             <input id="tDate" type="date" value="${todayStr()}" />
@@ -205,7 +230,7 @@
         </div>
 
         <div class="section">
-          <h2>Anfragen von Mitarbeitern ${openAnfragen.length ? `<span class="badge anfrage">${openAnfragen.length} offen</span>`:""}</h2>
+          <h2>🔔 Anfragen von Mitarbeitern ${openAnfragen.length ? `<span class="badge anfrage">${openAnfragen.length} offen</span>`:""}</h2>
           ${DATA.anfragen.length ? DATA.anfragen.slice().reverse().map(a => {
             const t = DATA.termine.find(x=>x.id===a.termineId);
             const emp = DATA.employees.find(e=>e.id===a.employeeId);
@@ -217,13 +242,13 @@
         </div>
 
         <div class="section">
-          <h2>Alle Termine</h2>
+          <h2>📋 Alle Termine</h2>
           ${DATA.termine.length ? DATA.termine.slice().reverse().map(t => {
             const emp = DATA.employees.find(e=>e.id===t.employeeId);
             return `<div class="termin">
               <div class="t-head"><span>${esc(t.title)}</span><button class="btn-danger" data-delT="${t.id}">Löschen</button></div>
-              <div class="t-meta">${esc(emp?emp.name:"?")} · ${esc(t.date)} ${esc(t.time||"")} ${t.ort?`· ${esc(t.ort)}`:""}</div>
-              ${t.notiz?`<div class="t-meta">${esc(t.notiz)}</div>`:""}
+              <div class="t-meta">👤 ${esc(emp?emp.name:"?")} · 📅 ${esc(t.date)} ${esc(t.time||"")} ${t.ort?`· 📍 ${esc(t.ort)}`:""}</div>
+              ${t.notiz?`<div class="t-meta">📝 ${esc(t.notiz)}</div>`:""}
             </div>`;
           }).join("") : `<div class="empty">Noch keine Termine.</div>`}
         </div>
@@ -267,29 +292,58 @@
     });
   }
 
-  /* ---- Mitarbeiter-Ansicht ---- */
+  /* ---- Mitarbeiter-Ansicht (mit Kalender) ---- */
   function renderMitarbeiter() {
     const emp = DATA.employees.find(e => e.id === SESSION.id);
     if (!emp) { SESSION = null; setSession(null); return renderLogin(); }
-    const meine = DATA.termine.filter(t => t.employeeId === emp.id).sort((a,b)=>a.date.localeCompare(b.date));
+    const meine = DATA.termine.filter(t => t.employeeId === emp.id);
+    const byDay = {};
+    meine.forEach(t => { (byDay[t.date] = byDay[t.date] || []).push(t); });
+
+    const [cy, cm] = calCursor.split("-").map(Number);
+    const first = new Date(cy, cm-1, 1);
+    const startOffset = (first.getDay() + 6) % 7; // Montag=0
+    const daysInMonth = new Date(cy, cm, 0).getDate();
+    let cells = "";
+    for (let i=0;i<startOffset;i++) cells += `<div class="cal-day pad"></div>`;
+    for (let d=1; d<=daysInMonth; d++) {
+      const ds = `${cy}-${String(cm).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+      const has = byDay[ds];
+      const cls = ["cal-day"];
+      if (ds === todayStr()) cls.push("today");
+      if (has) cls.push("has");
+      if (ds === calSelDay) cls.push("sel");
+      cells += `<div class="${cls.join(" ")}" ${has?`data-day="${ds}"`:""}>${d}${has?'<span class="dot"></span>':""}</div>`;
+    }
+    const selList = byDay[calSelDay] || [];
+
     root.innerHTML = `
       ${topbar(emp.name)}
       <main>
         <div class="section">
-          <h2>Meine Termine</h2>
-          ${meine.length ? meine.map(t => {
-            const meineAnfragen = DATA.anfragen.filter(a => a.termineId === t.id);
-            return `<div class="termin">
+          <h2>📅 Mein Kalender</h2>
+          <div class="cal-head">
+            <button id="calPrev">‹</button>
+            <span class="lbl">${MONTHS[cm-1]} ${cy}</span>
+            <button id="calNext">›</button>
+          </div>
+          <div class="cal-grid">${DOW.map(d=>`<div class="cal-dow">${d}</div>`).join("")}${cells}</div>
+          <div class="cal-daylist">
+            <div style="font-size:12.5px;color:var(--grey);margin-bottom:6px;">Termine am ${calSelDay.split("-").reverse().join(".")}</div>
+            ${selList.length ? selList.map(t => `<div class="termin">
               <div class="t-head"><span>${esc(t.title)}</span></div>
-              <div class="t-meta">${esc(t.date)} ${esc(t.time||"")} ${t.ort?`· ${esc(t.ort)}`:""}</div>
-              ${t.notiz?`<div class="t-meta">Anweisung: ${esc(t.notiz)}</div>`:""}
-              ${meineAnfragen.map(a=>`<div class="anfrage-box">Deine Anfrage: ${esc(a.text)} ${a.erledigt?'<span class="badge offen">erledigt</span>':'<span class="badge anfrage">offen</span>'}</div>`).join("")}
+              <div class="t-meta">🕐 ${esc(t.time||"–")} ${t.ort?`· 📍 ${esc(t.ort)}`:""}</div>
+              ${t.notiz?`<div class="t-meta">📝 ${esc(t.notiz)}</div>`:""}
+              ${DATA.anfragen.filter(a=>a.termineId===t.id).map(a=>`<div class="anfrage-box">Deine Anfrage: ${esc(a.text)} ${a.erledigt?'<span class="badge offen">erledigt</span>':'<span class="badge anfrage">offen</span>'}</div>`).join("")}
               <button class="link-btn" style="margin-top:6px;" data-req="${t.id}">Anfrage stellen (z.B. kann nicht)</button>
-            </div>`;
-          }).join("") : `<div class="empty">Keine Termine geplant.</div>`}
+            </div>`).join("") : `<div class="empty">Keine Termine an diesem Tag.</div>`}
+          </div>
         </div>
       </main>`;
     bindLogout();
+    document.getElementById("calPrev").onclick = () => { const d=new Date(cy,cm-2,1); calCursor=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; render(); };
+    document.getElementById("calNext").onclick = () => { const d=new Date(cy,cm,1); calCursor=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; render(); };
+    root.querySelectorAll("[data-day]").forEach(el => el.onclick = () => { calSelDay = el.dataset.day; render(); });
     root.querySelectorAll("[data-req]").forEach(b => b.onclick = async () => {
       const text = prompt("Deine Anfrage / Nachricht zu diesem Termin:");
       if (!text) return;

@@ -94,24 +94,32 @@
       async set(key, value, shared) { localStorage.setItem("mf_"+(shared?"s_":"p_")+key, value); return {key,value,shared:!!shared}; },
     };
   }
-  try {
-    const { initializeApp } = await import("https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js");
-    const { getFirestore, doc, getDoc, setDoc } = await import("https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js");
-    const fbApp = initializeApp(firebaseConfig);
-    const fs = getFirestore(fbApp);
-    window.storage = {
-      async get(key, shared) {
-        if (!shared) { const raw = localStorage.getItem("mf_p_"+key); return raw===null?null:{key,value:raw,shared:false}; }
-        const snap = await getDoc(doc(fs, "malerfirma_shared", key));
-        return snap.exists() ? {key, value:snap.data().value, shared:true} : null;
-      },
-      async set(key, value, shared) {
-        if (!shared) { localStorage.setItem("mf_p_"+key, value); return {key,value,shared:false}; }
-        await setDoc(doc(fs, "malerfirma_shared", key), {value, updatedAt: Date.now()});
-        return {key,value,shared:true};
-      },
-    };
-  } catch (e) { console.warn("Firebase nicht verfügbar, nutze lokalen Speicher:", e); localFallback(); }
+  // WICHTIG: sofort lokalen Speicher aktivieren, damit die App auf dem Handy
+  // (langsames/blockiertes Netz) sofort nutzbar ist. Firebase wird danach im
+  // Hintergrund nachgeladen und übernimmt erst, wenn es wirklich bereit ist.
+  localFallback();
+  (async () => {
+    try {
+      const { initializeApp } = await import("https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js");
+      const { getFirestore, doc, getDoc, setDoc } = await import("https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js");
+      const fbApp = initializeApp(firebaseConfig);
+      const fs = getFirestore(fbApp);
+      window.storage = {
+        async get(key, shared) {
+          if (!shared) { const raw = localStorage.getItem("mf_p_"+key); return raw===null?null:{key,value:raw,shared:false}; }
+          const snap = await getDoc(doc(fs, "malerfirma_shared", key));
+          return snap.exists() ? {key, value:snap.data().value, shared:true} : null;
+        },
+        async set(key, value, shared) {
+          if (!shared) { localStorage.setItem("mf_p_"+key, value); return {key,value,shared:false}; }
+          await setDoc(doc(fs, "malerfirma_shared", key), {value, updatedAt: Date.now()});
+          return {key,value,shared:true};
+        },
+      };
+      // Nach erfolgreichem Firebase-Start einmal aktuelle Daten nachladen.
+      if (typeof refreshFromStorage === "function") refreshFromStorage();
+    } catch (e) { console.warn("Firebase nicht verfügbar, nutze lokalen Speicher:", e); }
+  })();
 
   /* ---------------------------- App-Logik ---------------------------- */
   const root = document.getElementById("root");
@@ -141,11 +149,19 @@
 
   function esc(s) { return (s||"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
-  async function render() {
-    DATA = await loadData();
+  // render() zeichnet SOFORT aus dem aktuellen Zustand im Speicher (RAM) –
+  // kein Warten auf das Netz. Das ist der Grund, warum Buttons/Login auf
+  // dem Handy vorher manchmal "nicht reagiert" haben.
+  function render() {
     if (!SESSION) return renderLogin();
     if (SESSION.role === "chef") return renderChef();
     return renderMitarbeiter();
+  }
+  // Holt einmalig frische Daten aus dem Speicher (z.B. Änderungen von einem
+  // anderen Gerät) und zeichnet danach neu – läuft im Hintergrund, blockiert
+  // aber nie einen Klick.
+  async function refreshFromStorage() {
+    try { DATA = await loadData(); render(); } catch (e) { console.warn(e); }
   }
 
   /* ---- Login ---- */
@@ -190,8 +206,10 @@
         const pw = document.getElementById("chefPw").value;
         if (!pw) { errEl.textContent = "Bitte Passwort eingeben."; return; }
         if (!DATA.chefPassword) {
-          DATA.chefPassword = pw; await saveData(DATA);
-          SESSION = { role:"chef" }; setSession(SESSION); return render();
+          DATA.chefPassword = pw;
+          SESSION = { role:"chef" }; setSession(SESSION); render();
+          saveData(DATA).catch(e=>console.warn(e));
+          return;
         }
         if (pw !== DATA.chefPassword) { errEl.textContent = "Falsches Passwort."; return; }
         SESSION = { role:"chef" }; setSession(SESSION); return render();
@@ -236,7 +254,6 @@
           <h2>📊 Überblick</h2>
           <div class="stats">
             <div class="stat"><div class="num">${DATA.employees.length}</div><div class="lbl">Mitarbeiter</div></div>
-            <div class="num-wrap"></div>
             <div class="stat"><div class="num">${upcoming.length}</div><div class="lbl">Kommende Termine</div></div>
             <div class="stat"><div class="num">${openAnfragen.length}</div><div class="lbl">Offene Anfragen</div></div>
           </div>
@@ -318,19 +335,20 @@
       const pw = document.getElementById("newEmpPw").value.trim();
       if (!name || !pw) return;
       DATA.employees.push({ id: uid(), name, password: pw });
-      await saveData(DATA); render();
+      render(); saveData(DATA).catch(e=>console.warn(e));
     };
     const chgChefPwBtn = document.getElementById("chgChefPwBtn");
     if (chgChefPwBtn) chgChefPwBtn.onclick = async () => {
       const pw = document.getElementById("newChefPw").value.trim();
       if (!pw) return;
-      DATA.chefPassword = pw; await saveData(DATA);
+      DATA.chefPassword = pw;
       document.getElementById("newChefPw").value = ""; alert("Passwort geändert.");
+      saveData(DATA).catch(e=>console.warn(e));
     };
     root.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
       if (!confirm("Mitarbeiter wirklich entfernen?")) return;
       DATA.employees = DATA.employees.filter(e => e.id !== b.dataset.del);
-      await saveData(DATA); render();
+      render(); saveData(DATA).catch(e=>console.warn(e));
     });
     const addTerminBtn = document.getElementById("addTerminBtn");
     if (addTerminBtn) addTerminBtn.onclick = async () => {
@@ -344,17 +362,17 @@
         ort: document.getElementById("tOrt").value.trim(),
         notiz: document.getElementById("tNotiz").value.trim(),
       });
-      await saveData(DATA); render();
+      render(); saveData(DATA).catch(e=>console.warn(e));
     };
     root.querySelectorAll("[data-delT]").forEach(b => b.onclick = async () => {
       DATA.termine = DATA.termine.filter(t => t.id !== b.dataset.delT);
       DATA.anfragen = DATA.anfragen.filter(a => a.termineId !== b.dataset.delT);
-      await saveData(DATA); render();
+      render(); saveData(DATA).catch(e=>console.warn(e));
     });
     root.querySelectorAll("[data-doneReq]").forEach(b => b.onclick = async () => {
       const a = DATA.anfragen.find(x => x.id === b.dataset.doneReq);
       if (a) a.erledigt = true;
-      await saveData(DATA); render();
+      render(); saveData(DATA).catch(e=>console.warn(e));
     });
   }
 
@@ -457,14 +475,15 @@
       const text = prompt("Deine Anfrage / Nachricht zu diesem Termin:");
       if (!text) return;
       DATA.anfragen.push({ id: uid(), termineId: b.dataset.req, employeeId: emp.id, text, erledigt:false });
-      await saveData(DATA); render();
+      render(); saveData(DATA).catch(e=>console.warn(e));
     });
     const chgEmpPwBtn = document.getElementById("chgEmpPwBtn");
     if (chgEmpPwBtn) chgEmpPwBtn.onclick = async () => {
       const pw = document.getElementById("newEmpPw2").value.trim();
       if (!pw) return;
-      emp.password = pw; await saveData(DATA);
-      alert("Passwort geändert."); render();
+      emp.password = pw;
+      render(); alert("Passwort geändert.");
+      saveData(DATA).catch(e=>console.warn(e));
     };
   }
 

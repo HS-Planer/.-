@@ -305,7 +305,7 @@
           ${DATA.termine.length ? DATA.termine.slice().reverse().map(t => {
             const emp = DATA.employees.find(e=>e.id===t.employeeId);
             return `<div class="termin">
-              <div class="t-head"><span>${esc(t.title)}</span><button class="btn-danger" data-delT="${t.id}" type="button">Löschen</button></div>
+              <div class="t-head"><span>${esc(t.title)}</span><button class="btn-danger" data-termin-id="${t.id}" type="button">Löschen</button></div>
               <div class="t-meta">👤 ${esc(emp?emp.name:"?")} · 📅 ${esc(t.date)} ${esc(t.time||"")} ${t.ort?`· 📍 ${esc(t.ort)}`:""}</div>
               ${t.notiz?`<div class="t-meta">📝 ${esc(t.notiz)}</div>`:""}
             </div>`;
@@ -320,7 +320,7 @@
             const emp = DATA.employees.find(e=>e.id===a.employeeId);
             return `<div class="anfrage-box">
               <strong>${esc(emp?emp.name:"?")}</strong> zu "${esc(t?t.title:"gelöschter Termin")}": ${esc(a.text)}
-              ${a.erledigt ? `<span class="badge offen" style="margin-left:6px;">erledigt</span>` : `<button class="link-btn" style="margin-left:8px;" data-doneReq="${a.id}" type="button">als erledigt markieren</button>`}
+              ${a.erledigt ? `<span class="badge offen" style="margin-left:6px;">erledigt</span>` : `<button class="link-btn" style="margin-left:8px;" data-anfrage-id="${a.id}" type="button">als erledigt markieren</button>`}
             </div>`;
           }).join("") : `<div class="empty">Keine Anfragen.</div>`}
         </div>`;
@@ -364,13 +364,13 @@
       });
       render(); saveData(DATA).catch(e=>console.warn(e));
     };
-    root.querySelectorAll("[data-delT]").forEach(b => b.onclick = async () => {
-      DATA.termine = DATA.termine.filter(t => t.id !== b.dataset.delT);
-      DATA.anfragen = DATA.anfragen.filter(a => a.termineId !== b.dataset.delT);
+    root.querySelectorAll("[data-termin-id]").forEach(b => b.onclick = async () => {
+      DATA.termine = DATA.termine.filter(t => t.id !== b.dataset.terminId);
+      DATA.anfragen = DATA.anfragen.filter(a => a.termineId !== b.dataset.terminId);
       render(); saveData(DATA).catch(e=>console.warn(e));
     });
-    root.querySelectorAll("[data-doneReq]").forEach(b => b.onclick = async () => {
-      const a = DATA.anfragen.find(x => x.id === b.dataset.doneReq);
+    root.querySelectorAll("[data-anfrage-id]").forEach(b => b.onclick = async () => {
+      const a = DATA.anfragen.find(x => x.id === b.dataset.anfrageId);
       if (a) a.erledigt = true;
       render(); saveData(DATA).catch(e=>console.warn(e));
     });
